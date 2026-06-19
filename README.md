@@ -111,3 +111,9 @@ python3 -m unittest discover -s tests -v
 - `MOONBIRD_DB`: SQLite path, default `data/moonbird.sqlite3`
 - `MOONBIRD_ROOM_HOURS`: active room duration, default `24`
 - `MOONBIRD_RETENTION_DAYS`: stored traffic/detection retention, default `30`
+
+## License
+
+GPL-3.0-only. See [`LICENSE`](LICENSE).
+
+Meshtastic® is a registered trademark of Meshtastic LLC. Meshtastic software components are released under various licenses, see GitHub for details. No warranty is provided - use at your own risk.

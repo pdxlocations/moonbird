@@ -1,6 +1,9 @@
+
 # Moonbird
 
 Moonbird coordinates 145.050 MHz Meshtastic/LoRa lunar-path experiments. It combines live radio traffic and experiment rooms with Earth-Moon geometry, pointing data, propagation forecasts, and evidence-based candidate return detection.
+
+<img width="1052" height="1150" alt="Screenshot 2026-06-19 at 1 32 24 PM" src="https://github.com/user-attachments/assets/e5ea7eb6-50ae-4938-93c0-fad1816631ef" />
 
 ## Current MVP
 

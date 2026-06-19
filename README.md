@@ -8,13 +8,14 @@ Moonbird coordinates 145.050 MHz Meshtastic/LoRa lunar-path experiments. It comb
 - Hour, day, month, and year forecasts for one station or an overlaid remote station
 - Moon azimuth/elevation, range, delay, Doppler, declination, illumination, solar separation, path loss, and relative condition quality
 - Three.js Earth-Moon visualization and live propagation graph
-- Local TCP, Bluetooth, or serial companion agent for Meshtastic nodes on macOS, Windows, and Linux
+- Direct browser HTTP, Bluetooth, or USB Serial connections using the official Meshtastic JavaScript packages
+- Optional local companion fallback for unsupported browsers and raw TCP environments
 - Complete decoded traffic capture, including ACK/routing, NodeInfo, telemetry, positions, ordinary text, and tagged probes
 - FT8-style sequenced CQ, report, Roger, sign-off, and custom messages
 - Candidate lunar-return correlation with a prominent visual/audio event
 - JSON and CSV exports; traffic is retained for 30 days by default
 
-The shared service never connects to a participant's LAN. Each local companion makes outbound connections to the radio and Moonbird server. Transmit control is locally disabled unless the operator starts the agent with `--allow-transmit`.
+The shared service never connects to a participant's LAN. Browser radio connections stay local to each participant and forward decoded observations through that participant's authenticated room socket. The optional companion also makes outbound-only connections; its transmit control is disabled unless started with `--allow-transmit`.
 
 ## Run locally
 
@@ -38,6 +39,10 @@ docker compose up --build
 
 ## Connect a local radio
 
+Create or join a room, choose **Wi-Fi / HTTP**, **Bluetooth**, or **USB Serial** in Radio Control, then select **Connect in browser**. Bluetooth and Serial open the browser's native device picker. Wi-Fi uses the node's HTTP API at the entered hostname or IP. Browser device APIs require a supported browser and a secure context (`https://` or localhost). Browsers cannot open raw TCP sockets; choose **Raw TCP (terminal fallback)** when the node exposes TCP rather than HTTP.
+
+### Terminal fallback
+
 Install the companion dependencies on the computer that can reach the Meshtastic node:
 
 ```sh
@@ -45,7 +50,7 @@ python3 -m venv .agent-venv
 .agent-venv/bin/pip install -r requirements-agent.txt
 ```
 
-Create or join a room in the browser. The Radio Control panel provides the command containing that participant's room token:
+The Radio Control panel's **Terminal companion fallback** section provides a command containing that participant's room token:
 
 ```sh
 .agent-venv/bin/python -m moonbird_agent \
@@ -65,7 +70,7 @@ Choose exactly one radio option:
 - Serial: `--serial-port /dev/ttyUSB0` (or the appropriate Windows COM port)
 - Bluetooth: `--bluetooth-address DEVICE_NAME_OR_OS_ADDRESS`
 
-The Radio Control panel generates the correct option. Its Bluetooth scan lists Meshtastic devices when the browser supports Web Bluetooth; selecting a result fills the advertised device name into the command. Browser-scoped Bluetooth IDs are not valid Meshtastic Python identifiers. Web Bluetooth requires a supported browser and a secure context (`https://` or localhost). An OS Bluetooth address can also be entered manually.
+The fallback command generator uses the selected transport. Its Bluetooth scan can fill the advertised device name into the command. Browser-scoped Bluetooth IDs are not valid Meshtastic Python identifiers; an OS Bluetooth address can also be entered manually.
 
 ### TCP checklist
 

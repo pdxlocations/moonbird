@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Moonbird | Meshtastic EME</title>
+    <link rel="icon" href="/static/assets/moonbird-logo.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="stylesheet" href="/static/landing.css">
     <link rel="stylesheet" href="/static/themes.css">
@@ -68,12 +69,12 @@
         </section>
 
         <section class="panel control-panel">
-          <div class="panel-head"><div><p class="eyebrow">Local station</p><h2>Radio control</h2></div><div class="agent-status-actions"><span id="agent-badge" class="badge">Agent offline</span><button id="disconnect-agent" type="button" class="outline" hidden>Disconnect radio</button></div></div>
+          <div class="panel-head"><div><p class="eyebrow">Local station</p><h2>Radio control</h2></div><div class="agent-status-actions"><span id="agent-badge" class="badge">Radio offline</span><button id="disconnect-agent" type="button" class="outline" hidden>Disconnect radio</button></div></div>
           <div id="agent-setup">
             <div class="agent-fields">
               <label>Moonbird server<input id="agent-server" placeholder="http://127.0.0.1:8000"></label>
-              <label>Connection<select id="radio-transport"><option value="tcp">TCP</option><option value="bluetooth">Bluetooth</option><option value="serial">Serial</option></select></label>
-              <label data-radio-transport="tcp">Radio TCP host<input id="radio-host" placeholder="meshtastic.local"></label>
+              <label>Connection<select id="radio-transport"><option value="http">Wi-Fi / HTTP</option><option value="bluetooth">Bluetooth</option><option value="serial">USB Serial</option><option value="tcp">Raw TCP (terminal fallback)</option></select></label>
+              <label data-radio-transport="http,tcp">Radio hostname or IP<input id="radio-host" placeholder="meshtastic.local"></label>
               <label data-radio-transport="serial" hidden>Serial port<input id="serial-port" placeholder="/dev/tty.usbmodem…"></label>
               <div data-radio-transport="bluetooth" hidden>
                 <label>Bluetooth device name or OS address<input id="bluetooth-address" placeholder="Select a device below"></label>
@@ -81,14 +82,18 @@
                 <div id="bluetooth-results" class="bluetooth-results" role="listbox" aria-label="Bluetooth devices" hidden></div>
               </div>
             </div>
-            <div id="agent-command" class="agent-command"></div>
-            <button id="copy-agent-command" type="button" class="outline copy-agent">Copy agent command</button>
+            <button id="connect-browser-radio" type="button" class="browser-connect">Connect in browser</button>
+            <details class="agent-help terminal-fallback">
+              <summary>Terminal companion fallback</summary>
+              <div id="agent-command" class="agent-command"></div>
+              <button id="copy-agent-command" type="button" class="outline copy-agent">Copy agent command</button>
+            </details>
             <details class="agent-help">
               <summary>How to connect the radio</summary>
               <ol>
-                <li>Select TCP, Bluetooth, or Serial and enter or select the local radio.</li>
-                <li>Create <code>.agent-venv</code> with Python 3.11 or 3.12 and install <code>requirements-agent.txt</code>.</li>
-                <li>Run the generated command in a terminal.</li>
+                <li>Select Wi-Fi, Bluetooth, or USB Serial.</li>
+                <li>Choose <strong>Connect in browser</strong> and approve the device prompt.</li>
+                <li>Use the terminal fallback only if this browser does not support the required device API.</li>
               </ol>
               <p><code>127.0.0.1</code> is correct only when the agent and Moonbird server run on the same computer. Remote operators must use the public Moonbird URL.</p>
               <p>macOS/Linux setup: <code>python3.12 -m venv .agent-venv &amp;&amp; .agent-venv/bin/pip install -r requirements-agent.txt</code></p>
@@ -116,7 +121,7 @@
               <label>Meshtastic destination<input name="destination" value="^all" title="^all for broadcast or a Meshtastic node ID"></label>
               <label>Channel index<input name="channel" type="number" min="0" max="7" value="0"></label>
             </div>
-            <button id="transmit-button">Transmit</button>
+            <button id="transmit-button"><span>Transmit</span></button>
           </form>
         </section>
 

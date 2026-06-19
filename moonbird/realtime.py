@@ -21,16 +21,21 @@ class RoomHub:
 
     async def add_agent(self, room: str, callsign: str, websocket: WebSocket) -> None:
         await websocket.accept()
+        await self.bind_agent(room, callsign, websocket)
+
+    async def bind_agent(self, room: str, callsign: str, websocket: WebSocket) -> None:
         old = self.agents.get((room, callsign))
-        if old:
+        if old and old is not websocket:
             await old.close(code=4001, reason="A newer agent connected")
         self.agents[(room, callsign)] = websocket
         self.agent_statuses.pop((room, callsign), None)
 
-    def remove_agent(self, room: str, callsign: str, websocket: WebSocket) -> None:
+    def remove_agent(self, room: str, callsign: str, websocket: WebSocket) -> bool:
         if self.agents.get((room, callsign)) is websocket:
             self.agents.pop((room, callsign), None)
             self.agent_statuses.pop((room, callsign), None)
+            return True
+        return False
 
     def set_agent_status(self, room: str, callsign: str, status: dict[str, Any]) -> None:
         self.agent_statuses[(room, callsign)] = status

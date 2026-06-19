@@ -108,9 +108,26 @@
 }
 
 #send-form #transmit-button {
-  display: grid;
-  place-items: center;
-  text-align: center;
+  display: flex !important;
+  align-items: center;
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+#transmit-button > span {
+  margin-inline: auto;
+}
+
+#radio-transport {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 7px 8px;
+}
+
+#radio-transport option {
+  background: var(--panel);
+  color: var(--ink);
 }
 
 #send-form small {

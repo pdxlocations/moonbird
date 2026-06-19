@@ -307,6 +307,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 except json.JSONDecodeError:
                     continue
                 if message.get("type") != "chat" or not authenticated_callsign:
+                    if message.get("type") == "radio_status" and authenticated_callsign:
+                        status = message.get("status", {})
+                        if not isinstance(status, dict):
+                            continue
+                        if status.get("connected"):
+                            await hub.bind_agent(code, authenticated_callsign, websocket)
+                            hub.set_agent_status(code, authenticated_callsign, status)
+                            board_model = status.get("board_model")
+                            if isinstance(board_model, str) and board_model.strip():
+                                row = db.one("SELECT equipment_json FROM participants WHERE room_code = ? AND callsign = ?", (code, authenticated_callsign))
+                                equipment = json.loads(row["equipment_json"]) if row else {}
+                                equipment["radio"] = board_model.strip()[:80]
+                                db.execute(
+                                    "UPDATE participants SET equipment_json = ? WHERE room_code = ? AND callsign = ?",
+                                    (json.dumps(equipment), code, authenticated_callsign),
+                                )
+                                await hub.broadcast(code, {"type": "room", "room": public_room(db, code)})
+                            await hub.broadcast(code, {"type": "agent", "callsign": authenticated_callsign, "connected": True})
+                        else:
+                            hub.remove_agent(code, authenticated_callsign, websocket)
+                        await hub.broadcast(code, {"type": "agent_status", "callsign": authenticated_callsign, "status": status})
+                        continue
+                    if message.get("type") == "traffic" and authenticated_callsign and hub.agents.get((code, authenticated_callsign)) is websocket:
+                        await ingest(code, authenticated_callsign, TrafficInput.model_validate(message.get("traffic", {})))
                     continue
                 try:
                     chat = ChatInput.model_validate(message)
@@ -320,7 +344,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 await hub.broadcast(code, {"type": "chat", "message": {"id": message_id, "callsign": authenticated_callsign, "text": chat.text, "sent_at": sent_at}})
         except WebSocketDisconnect:
+            pass
+        finally:
             hub.remove_browser(code, websocket)
+            if authenticated_callsign and hub.remove_agent(code, authenticated_callsign, websocket):
+                await hub.broadcast(code, {"type": "agent", "callsign": authenticated_callsign, "connected": False})
 
     @app.websocket("/ws/agents/{code}/{callsign}")
     async def agent_socket(websocket: WebSocket, code: str, callsign: str, token: str = Query(...)):
@@ -355,8 +383,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
-            hub.remove_agent(code, callsign, websocket)
-            await hub.broadcast(code, {"type": "agent", "callsign": callsign, "connected": False})
+            if hub.remove_agent(code, callsign, websocket):
+                await hub.broadcast(code, {"type": "agent", "callsign": callsign, "connected": False})
 
     app.mount("/static", StaticFiles(directory=static), name="static")
     return app

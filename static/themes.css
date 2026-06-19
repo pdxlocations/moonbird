@@ -60,7 +60,8 @@ html[data-theme="dark"] .badge {
 
 html[data-theme="dark"] .card button,
 html[data-theme="dark"] #send-form button,
-html[data-theme="dark"] .chat-form button {
+html[data-theme="dark"] .chat-form button,
+html[data-theme="dark"] .browser-connect {
   background: #b8f43b;
   color: #09100c;
 }
@@ -108,7 +109,8 @@ html[data-theme="night"] .badge {
 html[data-theme="night"] .badge.connected,
 html[data-theme="night"] .card button,
 html[data-theme="night"] #send-form button,
-html[data-theme="night"] .chat-form button {
+html[data-theme="night"] .chat-form button,
+html[data-theme="night"] .browser-connect {
   background: #ff2418;
   color: #090000;
 }

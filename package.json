@@ -6,6 +6,15 @@
     "build": "node scripts/build-vendor.mjs"
   },
   "dependencies": {
+    "@meshtastic/core": "^2.6.7",
+    "@meshtastic/transport-http": "^0.2.5",
+    "@meshtastic/transport-web-bluetooth": "^0.1.5",
+    "@meshtastic/transport-web-serial": "^0.2.5",
+    "buffer": "^6.0.3",
+    "esbuild": "^0.28.1",
+    "os-browserify": "^0.3.0",
+    "path-browserify": "^1.0.1",
+    "process": "^0.11.10",
     "three": "^0.184.0"
   }
 }

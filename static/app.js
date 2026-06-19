@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, span: "day", traffic: [], chat: [], filter: "all", expandedTrafficId: null, scene: null, bluetoothScan: null, bluetoothAdvertisementHandler: null, bluetoothDevices: new Map() };
+const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, browserRadio: null, selectedBluetoothDevice: null, span: "day", traffic: [], chat: [], filter: "all", expandedTrafficId: null, scene: null, bluetoothScan: null, bluetoothAdvertisementHandler: null, bluetoothDevices: new Map() };
 const THEME_KEY = "moonbird:theme";
 const MESHTASTIC_BLUETOOTH_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd";
 const BLUETOOTH_IDENTIFIER_VERSION = "advertised-name-v2";
@@ -165,7 +165,12 @@ function initializeAgentSetup() {
   }
   if (!$("#bluetooth-address").value) $("#bluetooth-address").value = localStorage.getItem("moonbird:bluetooth-address") || "";
   if (!$("#radio-transport").dataset.initialized) {
-    $("#radio-transport").value = localStorage.getItem("moonbird:radio-transport") || "tcp";
+    let savedTransport = localStorage.getItem("moonbird:radio-transport") || "http";
+    if (localStorage.getItem("moonbird:radio-transport-version") !== "http-v2") {
+      if (savedTransport === "tcp") savedTransport = "http";
+      localStorage.setItem("moonbird:radio-transport-version", "http-v2");
+    }
+    $("#radio-transport").value = savedTransport;
     $("#radio-transport").dataset.initialized = "true";
   }
   updateRadioTransport();
@@ -174,7 +179,10 @@ function initializeAgentSetup() {
 
 function updateRadioTransport() {
   const transport = $("#radio-transport").value;
-  $$('[data-radio-transport]').forEach((element) => { element.hidden = element.dataset.radioTransport !== transport; });
+  $$('[data-radio-transport]').forEach((element) => { element.hidden = !element.dataset.radioTransport.split(",").includes(transport); });
+  const browserButton = $("#connect-browser-radio");
+  browserButton.disabled = transport === "tcp";
+  browserButton.textContent = transport === "tcp" ? "Raw TCP requires terminal companion" : "Connect in browser";
   localStorage.setItem("moonbird:radio-transport", transport);
   updateAgentCommand();
 }
@@ -184,6 +192,7 @@ function updateAgentCommand() {
   const server = $("#agent-server").value.trim() || defaultAgentServer();
   const transport = $("#radio-transport").value;
   const targets = {
+    http: { flag: "--radio-host", storageKey: "moonbird:radio-host", value: $("#radio-host").value.trim() || "meshtastic.local" },
     tcp: { flag: "--radio-host", storageKey: "moonbird:radio-host", value: $("#radio-host").value.trim() || "meshtastic.local" },
     serial: { flag: "--serial-port", storageKey: "moonbird:serial-port", value: $("#serial-port").value.trim() },
     bluetooth: { flag: "--bluetooth-address", storageKey: "moonbird:bluetooth-address", value: $("#bluetooth-address").value.trim() },
@@ -226,6 +235,7 @@ function addBluetoothDevice(device) {
   button.append(name, id);
   button.disabled = !identifier;
   button.addEventListener("click", () => {
+    state.selectedBluetoothDevice = device;
     $("#bluetooth-address").value = identifier;
     localStorage.setItem("moonbird:bluetooth-address", identifier);
     updateAgentCommand();
@@ -282,13 +292,54 @@ function connectSocket() {
     if (message.type === "detection") celebrate(message.detection);
     if (message.type === "agent" && message.callsign === state.callsign) setAgent(message.connected);
     if (message.type === "agent_status" && message.callsign === state.callsign) renderAgentStatus(message.status);
+    if (message.type === "transmit" && state.browserRadio) {
+      state.browserRadio.transmit(message).then((traffic) => sendRoomMessage({ type: "traffic", traffic })).catch((error) => toast(error.message));
+    }
+    if (message.type === "disconnect_radio" && state.browserRadio) state.browserRadio.disconnect().catch((error) => toast(error.message));
   });
-  socket.addEventListener("open", () => { connectSocket.ping = setInterval(() => socket.send("ping"), 20000); });
+  socket.addEventListener("open", () => {
+    connectSocket.ping = setInterval(() => socket.send("ping"), 20000);
+    if (state.browserRadio?.device) sendBrowserRadioStatus(true, state.browserRadio.boardModel);
+  });
   socket.addEventListener("close", () => { clearInterval(connectSocket.ping); setTimeout(() => state.room && connectSocket(), 2500); });
 }
 
+function sendRoomMessage(message) {
+  if (state.socket?.readyState === WebSocket.OPEN) state.socket.send(JSON.stringify(message));
+}
+
+function sendBrowserRadioStatus(connected, boardModel = null) {
+  sendRoomMessage({ type: "radio_status", status: { connected, board_model: boardModel, transport: $("#radio-transport").value } });
+  setAgent(connected);
+}
+
+async function connectBrowserRadio() {
+  const button = $("#connect-browser-radio"); button.disabled = true; button.textContent = "Connecting…";
+  try {
+    const { BrowserRadio } = await import("/static/vendor/browser-radio.js?v=3");
+    const transport = $("#radio-transport").value;
+    if (transport === "tcp") throw new Error("Raw TCP is not available in browsers. Use the terminal companion fallback.");
+    const target = transport === "http" ? $("#radio-host").value.trim() || "meshtastic.local" : "";
+    if (state.browserRadio?.device) await state.browserRadio.disconnect();
+    state.browserRadio = new BrowserRadio({
+      onStatus: sendBrowserRadioStatus,
+      onTraffic: (traffic) => sendRoomMessage({ type: "traffic", traffic }),
+    });
+    await state.browserRadio.connect(transport, target, state.selectedBluetoothDevice);
+  } catch (error) {
+    setAgent(false);
+    const transport = $("#radio-transport").value;
+    const failedFetch = transport === "http" && (error instanceof TypeError || /failed to fetch/i.test(error.message || ""));
+    toast(failedFetch
+      ? "Could not reach the node HTTP API. Check its address, CORS/private-network permission, and HTTP/HTTPS compatibility. Raw TCP requires the terminal fallback."
+      : error.message || "Radio connection failed.");
+  } finally {
+    updateRadioTransport();
+  }
+}
+
 function setAgent(connected) {
-  $("#agent-badge").textContent = connected ? "Agent connected" : "Agent offline";
+  $("#agent-badge").textContent = connected ? "Radio connected" : "Radio offline";
   $("#agent-badge").classList.toggle("connected", connected);
   $("#disconnect-agent").hidden = !connected;
   $("#agent-setup").hidden = connected;
@@ -618,6 +669,7 @@ $("#serial-port").addEventListener("input", updateAgentCommand);
 $("#bluetooth-address").addEventListener("input", updateAgentCommand);
 $("#radio-transport").addEventListener("change", updateRadioTransport);
 $("#scan-bluetooth").addEventListener("click", scanBluetoothDevices);
+$("#connect-browser-radio").addEventListener("click", connectBrowserRadio);
 $("#disconnect-agent").addEventListener("click", async () => {
   const button = $("#disconnect-agent"); button.disabled = true; button.textContent = "Disconnecting…";
   try {

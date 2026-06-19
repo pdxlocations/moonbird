@@ -1,8 +1,9 @@
 FROM node:22-alpine AS frontend
 WORKDIR /build
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts && node node_modules/esbuild/install.js
 COPY scripts ./scripts
+COPY src ./src
 RUN npm run build
 
 FROM python:3.12-slim

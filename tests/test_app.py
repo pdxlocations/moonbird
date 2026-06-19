@@ -97,6 +97,29 @@ class AppTests(unittest.TestCase):
         history = self.client.get(f"/api/rooms/{code}/chat").json()
         self.assertEqual(history[-1]["text"], "Moon visible here")
 
+    def test_authenticated_browser_can_serve_as_radio_endpoint(self):
+        room = self.create_room()
+        code = room["code"]
+        with self.client.websocket_connect(f"/ws/rooms/{code}?callsign=K7ABC&token={room['agent_token']}") as browser:
+            self.assertEqual(browser.receive_json()["type"], "room")
+            browser.send_json({"type": "radio_status", "status": {"connected": True, "transport": "serial"}})
+            self.assertEqual(browser.receive_json(), {"type": "agent", "callsign": "K7ABC", "connected": True})
+            self.assertEqual(browser.receive_json()["type"], "agent_status")
+
+            response = self.client.post(f"/api/rooms/{code}/transmit/K7ABC", json={"text": "browser"})
+            self.assertEqual(response.status_code, 200)
+            command = browser.receive_json()
+            self.assertEqual(command["type"], "transmit")
+            self.assertEqual(command["wire_text"], "CQ K7ABC CN85 browser #1")
+
+            disconnected = self.client.post(
+                f"/api/rooms/{code}/radio/K7ABC/disconnect",
+                json={"agent_token": room["agent_token"]},
+            )
+            self.assertTrue(disconnected.json()["disconnected"])
+            self.assertEqual(browser.receive_json(), {"type": "disconnect_radio"})
+            self.assertFalse(browser.receive_json()["status"]["connected"])
+
     def test_agent_stream_transmit_and_candidate_detection(self):
         room = self.create_room()
         code = room["code"]

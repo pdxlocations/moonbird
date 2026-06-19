@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Moonbird | Meshtastic EME</title>
     <link rel="icon" href="/static/assets/moonbird-logo.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/styles.css?v=20260619-1">
-    <link rel="stylesheet" href="/static/landing.css?v=20260619-1">
-    <link rel="stylesheet" href="/static/themes.css?v=20260619-1">
-    <link rel="stylesheet" href="/static/dashboard.css?v=20260619-1">
+    <link rel="stylesheet" href="/static/styles.css?v=20260619-2">
+    <link rel="stylesheet" href="/static/landing.css?v=20260619-2">
+    <link rel="stylesheet" href="/static/themes.css?v=20260619-2">
+    <link rel="stylesheet" href="/static/dashboard.css?v=20260619-2">
 </head>
 <body>
   <header class="topbar">
@@ -62,7 +62,7 @@
 
       <div class="dashboard">
         <section class="panel scene-panel">
-          <div class="panel-head"><div><p class="eyebrow">Live geometry</p><h2>Earth–Moon path</h2></div><span id="utc-clock"></span></div>
+          <div class="panel-head"><p class="eyebrow">Live geometry</p><span id="utc-clock"></span></div>
           <div id="scene" class="scene"></div>
           <div class="scene-stats"><div><small>Moon azimuth</small><strong id="stat-az">—</strong></div><div><small>Elevation</small><strong id="stat-el">—</strong></div><div title="Earth-Moon-Earth propagation at light speed; excludes LoRa airtime, queueing, and decode processing"><small>Vacuum path delay</small><strong id="stat-delay">—</strong></div><div><small>Doppler</small><strong id="stat-doppler">—</strong></div></div>
           <div class="scene-stats scene-distances"><div><small>Distance to Moon</small><strong id="stat-moon-distance">—</strong></div><div><small id="stat-moon-path-label">Via Moon</small><strong id="stat-moon-path">—</strong></div><div><small id="stat-earth-path-label">Via Earth</small><strong id="stat-earth-path">—</strong></div></div>
@@ -127,7 +127,7 @@
 
         <section class="panel forecast-panel wide">
           <div class="panel-head"><div><p class="eyebrow">Propagation forecast</p><h2>Station conditions</h2></div><div class="tabs"><button data-span="hour">Hour</button><button data-span="day" class="active">Day</button><button data-span="month">Month</button><button data-span="year">Year</button></div></div>
-          <div class="legend"><span class="tx">TX elevation</span><span class="rx">Remote elevation</span><span class="loss">Relative quality</span><span class="window">Shared window</span></div>
+          <div id="forecast-legend" class="legend"></div>
           <div id="forecast-chart" class="chart"></div>
           <div id="forecast-scrub-readout" class="forecast-scrub-readout"></div>
           <div id="forecast-note" class="chart-note"></div>
@@ -163,6 +163,6 @@
     <p id="detection-detail"></p><button id="dismiss-detection">Review evidence</button>
   </div>
   <div id="toast" class="toast" hidden></div>
-  <script type="module" src="/static/app.js?v=20260619-1"></script>
+  <script type="module" src="/static/app.js?v=20260619-2"></script>
 </body>
 </html>

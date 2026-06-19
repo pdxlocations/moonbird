@@ -4,6 +4,18 @@ const state = { room: null, callsign: null, adminToken: null, agentToken: null, 
 const THEME_KEY = "moonbird:theme";
 const MESHTASTIC_BLUETOOTH_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd";
 const BLUETOOTH_IDENTIFIER_VERSION = "advertised-name-v2";
+const STATION_COLORS = ["#ff6b3d", "#4da3ff", "#63c7ad", "#b48cff", "#f0c84b", "#ff78a8", "#42d4e8", "#a9e82e"];
+
+function activeStations() {
+  const stations = state.room?.participants.filter((station) => station.role !== "observer") || [];
+  const local = localStation();
+  return local ? [local, ...stations.filter((station) => station.callsign !== local.callsign)] : stations;
+}
+
+function stationColor(callsign) {
+  const index = activeStations().findIndex((station) => station.callsign === callsign);
+  return STATION_COLORS[(index < 0 ? 0 : index) % STATION_COLORS.length];
+}
 
 function setTheme(theme) {
   const selected = ["light", "dark", "night"].includes(theme) ? theme : "light";
@@ -118,7 +130,7 @@ function enterRoom(room) {
   $("#room-title").textContent = room.title; $("#room-code").textContent = room.code;
   $("#export-json").href = `/api/rooms/${room.code}/export.json`; $("#export-csv").href = `/api/rooms/${room.code}/traffic.csv`;
   $("#live-state").classList.add("online"); $("#live-state").lastChild.textContent = ` Room ${room.code}`;
-  renderRoom(); connectSocket(); initScene(); loadTraffic(); loadChat(); loadForecast();
+  renderRoom(); connectSocket(); initScene().then(loadForecast); loadTraffic(); loadChat();
 }
 
 function renderRoom() {
@@ -127,7 +139,7 @@ function renderRoom() {
   const container = $("#participants"); container.innerHTML = "";
   for (const station of state.room.participants) {
     const row = document.createElement("div"); row.className = "participant";
-    const icon = document.createElement("div"); icon.className = "participant-icon"; icon.textContent = station.callsign.slice(0, 2);
+    const icon = document.createElement("div"); icon.className = "participant-icon"; icon.textContent = station.callsign.slice(0, 2); icon.style.backgroundColor = station.role === "observer" ? "var(--muted)" : stationColor(station.callsign);
     const info = document.createElement("div"); const name = document.createElement("strong"); name.textContent = station.callsign + (station.callsign === state.callsign ? " (you)" : "");
     const detail = document.createElement("small"); detail.textContent = `${station.grid_square || ""} · ${station.latitude.toFixed(3)}, ${station.longitude.toFixed(3)} · ${station.equipment.radio || "Station"}`; info.append(name, detail);
     const role = document.createElement("select");
@@ -463,18 +475,20 @@ $$('.tabs button').forEach((button) => button.addEventListener("click", () => { 
 
 async function loadForecast() {
   const local = localStation(); if (!local) return;
-  const remote = remoteStation();
-  const query = new URLSearchParams({ lat: local.latitude, lon: local.longitude, elevation_m: local.elevation_m, span: state.span });
-  if (remote) { query.set("remote_lat", remote.latitude); query.set("remote_lon", remote.longitude); query.set("remote_elevation_m", remote.elevation_m); }
+  const remotes = activeStations().filter((station) => station.callsign !== local.callsign);
+  const baseQuery = { lat: local.latitude, lon: local.longitude, elevation_m: local.elevation_m, span: state.span };
   try {
-    const forecast = await api(`/api/planning?${query}`);
-    renderForecast(forecast);
-    const sample = forecast.samples[0];
-    const current = sample?.tx || sample;
-    updateScene(current, local, remote, {
-      moonPathKm: sample?.moon_path_distance_km,
-      earthPathKm: forecast.earth_path_distance_km,
-    });
+    const forecasts = remotes.length
+      ? await Promise.all(remotes.map((remote) => api(`/api/planning?${new URLSearchParams({ ...baseQuery, remote_lat: remote.latitude, remote_lon: remote.longitude, remote_elevation_m: remote.elevation_m })}`)))
+      : [await api(`/api/planning?${new URLSearchParams(baseQuery)}`)];
+    const localSamples = forecasts[0].samples.map((sample) => sample.tx || sample);
+    const series = [{ station: local, samples: localSamples }, ...remotes.map((station, index) => ({ station, samples: forecasts[index].samples.map((sample) => sample.rx) }))];
+    renderForecast(series);
+    updateScene(localSamples[0], series.map((item) => item.station), remotes.map((station, index) => ({
+      station,
+      moonPathKm: forecasts[index].samples[0]?.moon_path_distance_km,
+      earthPathKm: forecasts[index].earth_path_distance_km,
+    })));
   }
   catch (error) { toast(error.message); }
 }
@@ -493,23 +507,25 @@ function smoothChartPath(list, field, x, y) {
   return path;
 }
 
-function renderForecast(data) {
-  const shared = Boolean(data.tx_station); const samples = data.samples; const width = 1100, height = 260, left = 42, bottom = 25, plotW = width - left - 12, plotH = height - bottom - 10;
+function renderForecast(series) {
+  const samples = series[0]?.samples || []; if (!samples.length) return;
+  const width = 1100, height = 260, left = 42, bottom = 25, plotW = width - left - 12, plotH = height - bottom - 10;
   const x = (index) => left + index / Math.max(1, samples.length - 1) * plotW;
   const yElevation = (value) => 10 + (90 - Math.max(-30, Math.min(90, value))) / 120 * plotH;
   const yQuality = (value) => 10 + (100 - value) / 100 * plotH;
-  const tx = samples.map((sample) => sample.tx || sample); const rx = shared ? samples.map((sample) => sample.rx) : [];
-  const windows = shared ? samples.map((sample, index) => sample.shared_visible ? `<rect x="${x(index)}" y="10" width="${plotW / samples.length + 1}" height="${plotH}" fill="var(--lime)" opacity=".23"/>` : "").join("") : "";
-  const labels = [0, .25, .5, .75, 1].map((part) => { const index = Math.min(samples.length - 1, Math.floor((samples.length - 1) * part)); const at = new Date((samples[index].tx || samples[index]).at); const label = ["hour", "day"].includes(state.span) ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : at.toLocaleDateString([], state.span === "year" ? { month: "short" } : { month: "short", day: "numeric" }); return `<text x="${x(index)}" y="255" text-anchor="middle">${label}</text>`; }).join("");
-  $("#forecast-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><g class="grid">${[0,30,60,90].map((v) => `<line x1="${left}" x2="${width}" y1="${yElevation(v)}" y2="${yElevation(v)}"/><text x="34" y="${yElevation(v)+4}" text-anchor="end">${v}°</text>`).join("")}${labels}</g>${windows}<path d="${smoothChartPath(tx,"elevation_deg",x,yElevation)}" fill="none" stroke="var(--orange)" stroke-width="3" vector-effect="non-scaling-stroke"/>${shared ? `<path d="${smoothChartPath(rx,"elevation_deg",x,yElevation)}" fill="none" stroke="var(--blue)" stroke-width="3" vector-effect="non-scaling-stroke"/>` : ""}<path d="${smoothChartPath(tx,"quality",x,yQuality)}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/><g class="chart-scrubber"><line y1="10" y2="${10 + plotH}"/><circle class="tx-point" r="5"/><circle class="rx-point" r="5" ${shared ? "" : "hidden"}/></g><rect class="chart-hit-area" x="${left}" y="10" width="${plotW}" height="${plotH}"/></svg>`;
-  const svg = $("#forecast-chart svg"), scrubber = svg.querySelector(".chart-scrubber"), txPoint = scrubber.querySelector(".tx-point"), rxPoint = scrubber.querySelector(".rx-point"), readout = $("#forecast-scrub-readout");
+  const sharedVisible = samples.map((_, index) => series.every((item) => item.samples[index]?.visible));
+  const windows = series.length > 1 ? sharedVisible.map((visible, index) => visible ? `<rect x="${x(index)}" y="10" width="${plotW / samples.length + 1}" height="${plotH}" fill="var(--lime)" opacity=".23"/>` : "").join("") : "";
+  const labels = [0, .25, .5, .75, 1].map((part) => { const index = Math.min(samples.length - 1, Math.floor((samples.length - 1) * part)); const at = new Date(samples[index].at); const label = ["hour", "day"].includes(state.span) ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : at.toLocaleDateString([], state.span === "year" ? { month: "short" } : { month: "short", day: "numeric" }); return `<text x="${x(index)}" y="255" text-anchor="middle">${label}</text>`; }).join("");
+  const stationPaths = series.map((item) => `<path d="${smoothChartPath(item.samples,"elevation_deg",x,yElevation)}" fill="none" stroke="${stationColor(item.station.callsign)}" stroke-width="3" vector-effect="non-scaling-stroke"/>`).join("");
+  const points = series.map((item, index) => `<circle data-series="${index}" r="5" fill="${stationColor(item.station.callsign)}"/>`).join("");
+  $("#forecast-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><g class="grid">${[0,30,60,90].map((v) => `<line x1="${left}" x2="${width}" y1="${yElevation(v)}" y2="${yElevation(v)}"/><text x="34" y="${yElevation(v)+4}" text-anchor="end">${v}°</text>`).join("")}${labels}</g>${windows}${stationPaths}<path d="${smoothChartPath(series[0].samples,"quality",x,yQuality)}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/><g class="chart-scrubber"><line y1="10" y2="${10 + plotH}"/>${points}</g><rect class="chart-hit-area" x="${left}" y="10" width="${plotW}" height="${plotH}"/></svg>`;
+  $("#forecast-legend").innerHTML = `${series.map((item) => `<span style="--series-color:${stationColor(item.station.callsign)}">${item.station.callsign} elevation</span>`).join("")}<span class="loss">Relative quality</span>${series.length > 1 ? '<span class="window">Shared window</span>' : ""}`;
+  const svg = $("#forecast-chart svg"), scrubber = svg.querySelector(".chart-scrubber"), readout = $("#forecast-scrub-readout");
   const showSample = (index) => {
-    const sample = samples[index], txSample = sample.tx || sample, rxSample = sample.rx;
     const sampleX = x(index); scrubber.querySelector("line").setAttribute("x1", sampleX); scrubber.querySelector("line").setAttribute("x2", sampleX);
-    txPoint.setAttribute("cx", sampleX); txPoint.setAttribute("cy", yElevation(txSample.elevation_deg));
-    if (rxSample) { rxPoint.setAttribute("cx", sampleX); rxPoint.setAttribute("cy", yElevation(rxSample.elevation_deg)); }
-    const at = new Date(txSample.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    const remote = remoteStation(); readout.textContent = `${at} · ${state.callsign} ${txSample.elevation_deg.toFixed(1)}°${rxSample && remote ? ` · ${remote.callsign} ${rxSample.elevation_deg.toFixed(1)}°` : ""}`;
+    series.forEach((item, seriesIndex) => { const point = scrubber.querySelector(`[data-series="${seriesIndex}"]`); point.setAttribute("cx", sampleX); point.setAttribute("cy", yElevation(item.samples[index].elevation_deg)); });
+    const at = new Date(samples[index].at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    readout.textContent = `${at} · ${series.map((item) => `${item.station.callsign} ${item.samples[index].elevation_deg.toFixed(1)}°`).join(" · ")}`;
   };
   const scrub = (event) => {
     const bounds = svg.getBoundingClientRect();
@@ -520,8 +536,8 @@ function renderForecast(data) {
   svg.querySelector(".chart-hit-area").addEventListener("pointermove", scrub);
   svg.querySelector(".chart-hit-area").addEventListener("pointerdown", (event) => { event.currentTarget.setPointerCapture(event.pointerId); scrub(event); });
   showSample(0);
-  const visible = shared ? samples.filter((sample) => sample.shared_visible).length : tx.filter((sample) => sample.visible).length;
-  $("#forecast-note").textContent = shared ? `${visible} of ${samples.length} samples have simultaneous Moon visibility for ${state.callsign} and ${remoteStation().callsign}.` : `${visible} of ${samples.length} samples have the Moon above your horizon.`;
+  const visible = series.length > 1 ? sharedVisible.filter(Boolean).length : samples.filter((sample) => sample.visible).length;
+  $("#forecast-note").textContent = series.length > 1 ? `${visible} of ${samples.length} samples have simultaneous Moon visibility for all ${series.length} active stations.` : `${visible} of ${samples.length} samples have the Moon above your horizon.`;
 }
 
 async function initScene() {
@@ -551,12 +567,10 @@ async function initScene() {
   const sun = new THREE.Mesh(new THREE.SphereGeometry(.2, 48, 24), new THREE.MeshBasicMaterial({ map: sunTexture, color: 0xffc86a })); sun.position.set(-4, 2, -1); scene.add(sun);
   const light = new THREE.DirectionalLight(0xfff0cc, 3.6); light.position.copy(sun.position); const ambient = new THREE.AmbientLight(0x52726c, .12); scene.add(light, light.target, ambient);
   const stars = createStars(THREE, 720); scene.add(stars);
-  const stationMaterial = new THREE.MeshBasicMaterial({ color: 0xc9ff45 }); const localPin = new THREE.Mesh(new THREE.SphereGeometry(.045, 12, 8), stationMaterial); const remotePin = new THREE.Mesh(new THREE.SphereGeometry(.045, 12, 8), new THREE.MeshBasicMaterial({ color: 0x4da3ff })); scene.add(localPin, remotePin);
-  const lineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), moon.position]); const pathLine = new THREE.Line(lineGeometry, new THREE.LineDashedMaterial({ color: 0xc9ff45, dashSize: .12, gapSize: .08, transparent: true, opacity: .75 })); pathLine.computeLineDistances(); scene.add(pathLine);
   function resize() { const rect = host.getBoundingClientRect(); renderer.setSize(rect.width, rect.height, false); camera.aspect = rect.width / rect.height; camera.updateProjectionMatrix(); }
   new ResizeObserver(resize).observe(host); resize();
   function frame() { controls.update(); stars.rotation.y += .000025; renderer.render(scene, camera); requestAnimationFrame(frame); } frame();
-  state.scene = { earth, grid, moon, sun, stars, light, ambient, localPin, remotePin, pathLine };
+  state.scene = { scene, earth, grid, moon, sun, stars, light, ambient, stationObjects: new Map() };
   applySceneTheme();
 }
 
@@ -577,9 +591,6 @@ function applySceneTheme() {
   state.scene.light.color.setHex(colors.light);
   state.scene.ambient.color.setHex(colors.ambient);
   state.scene.ambient.intensity = theme === "night" ? .2 : theme === "dark" ? .15 : .12;
-  state.scene.localPin.material.color.setHex(colors.local);
-  state.scene.remotePin.material.color.setHex(colors.remote);
-  state.scene.pathLine.material.color.setHex(colors.path);
 }
 
 function createStars(THREE, count) {
@@ -643,14 +654,39 @@ function drawSunBands(context, size) {
 function stationBasis(THREE, station) { const latitude = THREE.MathUtils.degToRad(station.latitude), longitude = THREE.MathUtils.degToRad(station.longitude); const up = new THREE.Vector3(Math.cos(latitude) * Math.cos(longitude), Math.sin(latitude), -Math.cos(latitude) * Math.sin(longitude)).normalize(); const north = new THREE.Vector3(-Math.sin(latitude) * Math.cos(longitude), Math.cos(latitude), Math.sin(latitude) * Math.sin(longitude)).normalize(); const east = new THREE.Vector3(-Math.sin(longitude), 0, -Math.cos(longitude)).normalize(); return { up, north, east }; }
 function globePoint(station) { return stationBasis(state.THREE, station).up.multiplyScalar(1.04); }
 function horizontalPoint(THREE, station, azimuthDeg, elevationDeg, radius) { const { up, north, east } = stationBasis(THREE, station), azimuth = THREE.MathUtils.degToRad(azimuthDeg), elevation = THREE.MathUtils.degToRad(elevationDeg), horizontal = Math.cos(elevation); return north.multiplyScalar(horizontal * Math.cos(azimuth)).add(east.multiplyScalar(horizontal * Math.sin(azimuth))).add(up.multiplyScalar(Math.sin(elevation))).normalize().multiplyScalar(radius); }
-function updateScene(current, local, remote, paths = {}) {
-  if (!current || !state.scene) return; const THREE = state.THREE; state.scene.moon.position.copy(horizontalPoint(THREE, local, current.azimuth_deg, current.elevation_deg, 3.1)); state.scene.sun.position.copy(horizontalPoint(THREE, local, current.sun_azimuth_deg, current.sun_elevation_deg, 4.6)); state.scene.light.position.copy(state.scene.sun.position).multiplyScalar(2); state.scene.localPin.position.copy(globePoint(local)); state.scene.remotePin.visible = Boolean(remote); if (remote) state.scene.remotePin.position.copy(globePoint(remote)); state.scene.pathLine.geometry.setFromPoints([state.scene.localPin.position, state.scene.moon.position]); state.scene.pathLine.computeLineDistances();
+function updateScene(current, stations, paths = []) {
+  if (!current || !state.scene || !stations.length) return;
+  const THREE = state.THREE, local = stations[0];
+  state.scene.moon.position.copy(horizontalPoint(THREE, local, current.azimuth_deg, current.elevation_deg, 3.1));
+  state.scene.sun.position.copy(horizontalPoint(THREE, local, current.sun_azimuth_deg, current.sun_elevation_deg, 4.6));
+  state.scene.light.position.copy(state.scene.sun.position).multiplyScalar(2);
+  const activeCallsigns = new Set(stations.map((station) => station.callsign));
+  for (const [callsign, object] of state.scene.stationObjects) {
+    if (activeCallsigns.has(callsign)) continue;
+    state.scene.scene.remove(object.pin, object.pathLine);
+    object.pin.geometry.dispose(); object.pin.material.dispose(); object.pathLine.geometry.dispose(); object.pathLine.material.dispose();
+    state.scene.stationObjects.delete(callsign);
+  }
+  for (const station of stations) {
+    let object = state.scene.stationObjects.get(station.callsign);
+    if (!object) {
+      const color = stationColor(station.callsign);
+      const pin = new THREE.Mesh(new THREE.SphereGeometry(.05, 12, 8), new THREE.MeshBasicMaterial({ color }));
+      const pathLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color, dashSize: .12, gapSize: .08, transparent: true, opacity: .82 }));
+      object = { pin, pathLine }; state.scene.stationObjects.set(station.callsign, object); state.scene.scene.add(pin, pathLine);
+    }
+    object.pin.position.copy(globePoint(station));
+    object.pathLine.geometry.setFromPoints([object.pin.position, state.scene.moon.position]); object.pathLine.computeLineDistances();
+  }
   $("#stat-az").textContent = `${current.azimuth_deg.toFixed(1)}°`; $("#stat-el").textContent = `${current.elevation_deg.toFixed(1)}°`; $("#stat-delay").textContent = `${(current.round_trip_ms / 1000).toFixed(3)} s`; $("#stat-delay").parentElement.title = `${Math.round(current.distance_km * 2).toLocaleString()} km Earth-Moon-Earth vacuum path. Radio airtime, transmit queueing, and receiver decode time are additional.`; $("#stat-doppler").textContent = `${current.doppler_hz > 0 ? "+" : ""}${current.doppler_hz.toFixed(0)} Hz`;
   $("#stat-moon-distance").textContent = `${Math.round(current.distance_km).toLocaleString()} km`;
-  $("#stat-moon-path").textContent = paths.moonPathKm == null ? "—" : `${Math.round(paths.moonPathKm).toLocaleString()} km`;
-  $("#stat-earth-path").textContent = paths.earthPathKm == null ? "—" : `${Math.round(paths.earthPathKm).toLocaleString()} km`;
-  $("#stat-moon-path-label").textContent = remote ? `Via Moon to ${remote.callsign}` : "Via Moon";
-  $("#stat-earth-path-label").textContent = remote ? `Via Earth to ${remote.callsign}` : "Via Earth";
+  const moonDistances = paths.map((path) => path.moonPathKm).filter((value) => value != null);
+  const earthDistances = paths.map((path) => path.earthPathKm).filter((value) => value != null);
+  const distanceRange = (values) => !values.length ? "—" : values.length === 1 ? `${Math.round(values[0]).toLocaleString()} km` : `${Math.round(Math.min(...values)).toLocaleString()}–${Math.round(Math.max(...values)).toLocaleString()} km`;
+  $("#stat-moon-path").textContent = distanceRange(moonDistances);
+  $("#stat-earth-path").textContent = distanceRange(earthDistances);
+  $("#stat-moon-path-label").textContent = paths.length ? `Via Moon to ${paths.length} station${paths.length === 1 ? "" : "s"}` : "Via Moon";
+  $("#stat-earth-path-label").textContent = paths.length ? `Via Earth to ${paths.length} station${paths.length === 1 ? "" : "s"}` : "Via Earth";
 }
 
 function celebrate(detection) {

@@ -298,7 +298,10 @@ function connectSocket() {
   socket.addEventListener("message", ({ data }) => {
     const message = JSON.parse(data);
     if (message.type === "room") { state.room = message.room; renderRoom(); loadForecast(); }
-    if (message.type === "traffic") { state.traffic.unshift(message.traffic); renderTraffic(); }
+    if (message.type === "traffic") {
+      state.traffic.unshift(message.traffic); renderTraffic();
+      if (message.traffic.direction === "tx") animatePacket(message.traffic.callsign);
+    }
     if (message.type === "chat") { state.chat.push(message.message); state.chat = state.chat.slice(-200); renderChat(); }
     if (message.type === "chat_error") toast(message.detail);
     if (message.type === "detection") celebrate(message.detection);
@@ -492,7 +495,7 @@ async function loadForecast() {
       station,
       moonPathKm: forecasts[index].samples[0]?.moon_path_distance_km,
       earthPathKm: forecasts[index].earth_path_distance_km,
-    })));
+    })), series.map((item) => ({ callsign: item.station.callsign, distanceKm: item.samples[0]?.distance_km })));
   }
   catch (error) { toast(error.message); }
 }
@@ -573,8 +576,29 @@ async function initScene() {
   const stars = createStars(THREE, 720); scene.add(stars);
   function resize() { const rect = host.getBoundingClientRect(); renderer.setSize(rect.width, rect.height, false); camera.aspect = rect.width / rect.height; camera.updateProjectionMatrix(); }
   new ResizeObserver(resize).observe(host); resize();
-  function frame() { controls.update(); stars.rotation.y += .000025; renderer.render(scene, camera); requestAnimationFrame(frame); } frame();
-  state.scene = { scene, earth, grid, moon, sun, stars, light, ambient, stationObjects: new Map() };
+  const packetPulses = [];
+  function frame(now) {
+    controls.update(); stars.rotation.y += .000025;
+    for (let index = packetPulses.length - 1; index >= 0; index -= 1) {
+      const pulse = packetPulses[index], progress = Math.min(1, (now - pulse.startedAt) / pulse.duration);
+      const legProgress = progress <= .5 ? progress * 2 : (progress - .5) * 2;
+      if (progress <= .5) pulse.packet.position.lerpVectors(pulse.origin, pulse.moon, legProgress);
+      else pulse.packet.position.lerpVectors(pulse.moon, pulse.origin, legProgress);
+      pulse.packet.scale.setScalar(.8 + Math.sin(progress * Math.PI) * 1.8);
+      pulse.packet.material.opacity = progress < .88 ? 1 : (1 - progress) / .12;
+      const launchProgress = Math.min(1, progress * 2);
+      pulse.ring.scale.setScalar(1 + launchProgress * 5);
+      pulse.ring.material.opacity = Math.max(0, .9 - launchProgress);
+      if (progress < 1) continue;
+      scene.remove(pulse.packet, pulse.ring);
+      pulse.packet.geometry.dispose(); pulse.packet.material.dispose();
+      pulse.ring.geometry.dispose(); pulse.ring.material.dispose();
+      packetPulses.splice(index, 1);
+    }
+    renderer.render(scene, camera); requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  state.scene = { scene, earth, grid, moon, sun, stars, light, ambient, stationObjects: new Map(), packetPulses };
   applySceneTheme();
 }
 
@@ -658,13 +682,33 @@ function drawSunBands(context, size) {
 function stationBasis(THREE, station) { const latitude = THREE.MathUtils.degToRad(station.latitude), longitude = THREE.MathUtils.degToRad(station.longitude); const up = new THREE.Vector3(Math.cos(latitude) * Math.cos(longitude), Math.sin(latitude), -Math.cos(latitude) * Math.sin(longitude)).normalize(); const north = new THREE.Vector3(-Math.sin(latitude) * Math.cos(longitude), Math.cos(latitude), Math.sin(latitude) * Math.sin(longitude)).normalize(); const east = new THREE.Vector3(-Math.sin(longitude), 0, -Math.cos(longitude)).normalize(); return { up, north, east }; }
 function globePoint(station) { return stationBasis(state.THREE, station).up.multiplyScalar(1.04); }
 function horizontalPoint(THREE, station, azimuthDeg, elevationDeg, radius) { const { up, north, east } = stationBasis(THREE, station), azimuth = THREE.MathUtils.degToRad(azimuthDeg), elevation = THREE.MathUtils.degToRad(elevationDeg), horizontal = Math.cos(elevation); return north.multiplyScalar(horizontal * Math.cos(azimuth)).add(east.multiplyScalar(horizontal * Math.sin(azimuth))).add(up.multiplyScalar(Math.sin(elevation))).normalize().multiplyScalar(radius); }
-function updateScene(current, stations, paths = []) {
+function animatePacket(callsign) {
+  if (!state.room?.participants.some((station) => station.callsign === callsign)) return;
+  const sceneState = state.scene, stationObject = sceneState?.stationObjects.get(callsign);
+  if (!sceneState || !stationObject) return;
+  const THREE = state.THREE, color = stationColor(callsign), origin = stationObject.pin.position.clone(), moon = sceneState.moon.position.clone();
+  const packet = new THREE.Mesh(
+    new THREE.SphereGeometry(.045, 16, 10),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  packet.position.copy(origin);
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(.055, .075, 28),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .9, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  ring.position.copy(origin); ring.lookAt(moon);
+  sceneState.scene.add(packet, ring);
+  const roundTripMs = 2 * (stationObject.moonDistanceKm || 384400) / 299792.458 * 1000;
+  sceneState.packetPulses.push({ packet, ring, origin, moon, startedAt: performance.now(), duration: roundTripMs });
+}
+function updateScene(current, stations, paths = [], stationRanges = []) {
   if (!current || !state.scene || !stations.length) return;
   const THREE = state.THREE, local = stations[0];
   state.scene.moon.position.copy(horizontalPoint(THREE, local, current.azimuth_deg, current.elevation_deg, 3.1));
   state.scene.sun.position.copy(horizontalPoint(THREE, local, current.sun_azimuth_deg, current.sun_elevation_deg, 4.6));
   state.scene.light.position.copy(state.scene.sun.position).multiplyScalar(2);
   const activeCallsigns = new Set(stations.map((station) => station.callsign));
+  const rangesByCallsign = new Map(stationRanges.map((item) => [item.callsign, item.distanceKm]));
   for (const [callsign, object] of state.scene.stationObjects) {
     if (activeCallsigns.has(callsign)) continue;
     state.scene.scene.remove(object.pin, object.pathLine);
@@ -680,6 +724,7 @@ function updateScene(current, stations, paths = []) {
       object = { pin, pathLine }; state.scene.stationObjects.set(station.callsign, object); state.scene.scene.add(pin, pathLine);
     }
     object.pin.position.copy(globePoint(station));
+    object.moonDistanceKm = rangesByCallsign.get(station.callsign) || current.distance_km;
     object.pathLine.geometry.setFromPoints([object.pin.position, state.scene.moon.position]); object.pathLine.computeLineDistances();
   }
   $("#stat-az").textContent = `${current.azimuth_deg.toFixed(1)}°`; $("#stat-el").textContent = `${current.elevation_deg.toFixed(1)}°`; $("#stat-delay").textContent = `${(current.round_trip_ms / 1000).toFixed(3)} s`; $("#stat-delay").parentElement.title = `${Math.round(current.distance_km * 2).toLocaleString()} km Earth-Moon-Earth vacuum path. Radio airtime, transmit queueing, and receiver decode time are additional.`; $("#stat-doppler").textContent = `${current.doppler_hz > 0 ? "+" : ""}${current.doppler_hz.toFixed(0)} Hz`;

@@ -1,7 +1,7 @@
 
 # Moonbird
 
-Moonbird coordinates 145.050 MHz Meshtastic/LoRa lunar-path experiments. It combines live radio traffic and experiment rooms with Earth-Moon geometry, pointing data, propagation forecasts, and evidence-based candidate return detection.
+Moonbird coordinates Meshtastic/LoRa lunar-path experiments. It combines live radio traffic and experiment rooms with Earth-Moon geometry, pointing data, propagation forecasts, and evidence-based candidate return detection.
 
 <img width="1052" height="1150" alt="Screenshot 2026-06-19 at 1 32 24 PM" src="https://github.com/user-attachments/assets/e5ea7eb6-50ae-4938-93c0-fad1816631ef" />
 
@@ -42,7 +42,16 @@ docker compose up --build
 
 ## Connect a local radio
 
-Create or join a room, choose **Wi-Fi / HTTP**, **Bluetooth**, or **USB Serial** in Radio Control, then select **Connect in browser**. Bluetooth and Serial open the browser's native device picker. Wi-Fi uses the node's HTTP API at the entered hostname or IP. Browser device APIs require a supported browser and a secure context (`https://` or localhost). Browsers cannot open raw TCP sockets; choose **Raw TCP (terminal fallback)** when the node exposes TCP rather than HTTP.
+Create or join a room, then choose a connection in **Radio Control**:
+
+| Connection | Use when | How it connects |
+| --- | --- | --- |
+| **Wi-Fi / HTTP** | The node's HTTP API is reachable from the browser | Enter the node hostname or IP and select **Connect in browser** |
+| **Bluetooth** | The computer supports Web Bluetooth | Select **Connect in browser** and approve the browser's device prompt |
+| **USB Serial** | The node is connected by USB | Select **Connect in browser** and choose the node's serial port |
+| **Raw TCP** | The node exposes Meshtastic TCP, or browser device APIs are unavailable | Run the terminal companion shown in **Terminal companion fallback** |
+
+Browser Bluetooth and Serial require a supported browser and a secure context (`https://` or localhost). Browsers cannot open raw TCP sockets. All browser connections remain local to the participant's computer; the browser forwards decoded observations to the authenticated Moonbird room.
 
 ### Terminal fallback
 
@@ -95,7 +104,7 @@ The 3D view requires `three.module.js`, `three.core.js`, and `OrbitControls.js`.
 
 A detection is deliberately labeled a **candidate lunar return**. Moonbird correlates a unique probe ID, measured delay, predicted lunar path delay, station geometry, and routing metadata. This does not by itself exclude a delayed terrestrial duplicate, clock error, receiver artifact, or another transmitter. Operators should synchronize clocks, use a dedicated channel, use hop limit zero, preserve raw observations, and independently review Doppler and RF evidence.
 
-The astronomy model is a compact planning approximation and is not observatory-grade ephemeris software. The absolute link budget is intentionally displayed separately from relative propagation quality. At 50 W and 11.6 dBi antenna gain, the simple two-way 145.05 MHz lunar link estimate has an extremely large negative margin; Moonbird does not present favorable geometry as proof that this station can close the RF link.
+The astronomy model is a compact planning approximation and is not observatory-grade ephemeris software. The absolute link budget is intentionally displayed separately from relative propagation quality. The simple two-way lunar link estimate can have an extremely large negative margin; Moonbird does not present favorable geometry as proof that a station can close the RF link.
 
 The dashboard's vacuum path delay is the geometric Earth-Moon-Earth distance divided by light speed, normally about 2.4-2.7 seconds. It does not include LoRa packet airtime, the node transmit queue, amplifier switching, or receiver decode processing. A measured application-level return can therefore arrive later than the displayed geometric delay.
 

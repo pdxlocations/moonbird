@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, browserRadio: null, selectedBluetoothDevice: null, span: "day", traffic: [], chat: [], filter: "all", expandedTrafficId: null, scene: null, bluetoothScan: null, bluetoothAdvertisementHandler: null, bluetoothDevices: new Map() };
+const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, browserRadio: null, radioLongName: null, selectedBluetoothDevice: null, span: "day", traffic: [], chat: [], filter: "all", expandedTrafficId: null, scene: null, bluetoothScan: null, bluetoothAdvertisementHandler: null, bluetoothDevices: new Map() };
 const THEME_KEY = "moonbird:theme";
 const MESHTASTIC_BLUETOOTH_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd";
 const BLUETOOTH_IDENTIFIER_VERSION = "advertised-name-v2";
@@ -311,7 +311,7 @@ function connectSocket() {
   });
   socket.addEventListener("open", () => {
     connectSocket.ping = setInterval(() => socket.send("ping"), 20000);
-    if (state.browserRadio?.device) sendBrowserRadioStatus(true, state.browserRadio.boardModel);
+    if (state.browserRadio?.device) sendBrowserRadioStatus(true, state.browserRadio.boardModel, state.browserRadio.longName);
   });
   socket.addEventListener("close", () => { clearInterval(connectSocket.ping); setTimeout(() => state.room && connectSocket(), 2500); });
 }
@@ -320,15 +320,15 @@ function sendRoomMessage(message) {
   if (state.socket?.readyState === WebSocket.OPEN) state.socket.send(JSON.stringify(message));
 }
 
-function sendBrowserRadioStatus(connected, boardModel = null) {
-  sendRoomMessage({ type: "radio_status", status: { connected, board_model: boardModel, transport: $("#radio-transport").value } });
-  setAgent(connected);
+function sendBrowserRadioStatus(connected, boardModel = null, longName = null) {
+  sendRoomMessage({ type: "radio_status", status: { connected, board_model: boardModel, long_name: longName, transport: $("#radio-transport").value } });
+  setAgent(connected, longName);
 }
 
 async function connectBrowserRadio() {
   const button = $("#connect-browser-radio"); button.disabled = true; button.textContent = "Connecting…";
   try {
-    const { BrowserRadio } = await import("/static/vendor/browser-radio.js?v=3");
+    const { BrowserRadio } = await import("/static/vendor/browser-radio.js?v=4");
     const transport = $("#radio-transport").value;
     if (transport === "tcp") throw new Error("Raw TCP is not available in browsers. Use the terminal companion fallback.");
     const target = transport === "http" ? $("#radio-host").value.trim() || "meshtastic.local" : "";
@@ -350,14 +350,18 @@ async function connectBrowserRadio() {
   }
 }
 
-function setAgent(connected) {
+function setAgent(connected, longName = undefined) {
+  if (!connected) state.radioLongName = null;
+  else if (typeof longName === "string" && longName.trim()) state.radioLongName = longName.trim();
   $("#agent-badge").textContent = connected ? "Radio connected" : "Radio offline";
   $("#agent-badge").classList.toggle("connected", connected);
+  $("#radio-station-name").textContent = connected && state.radioLongName ? state.radioLongName : "Local station";
   $("#disconnect-agent").hidden = !connected;
   $("#agent-setup").hidden = connected;
+  $("#send-form").hidden = !connected;
 }
 function renderAgentStatus(status) {
-  setAgent(status.connected);
+  setAgent(status.connected, status.long_name);
 }
 
 $("#send-form").addEventListener("submit", async (event) => {

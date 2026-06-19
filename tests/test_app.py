@@ -102,9 +102,11 @@ class AppTests(unittest.TestCase):
         code = room["code"]
         with self.client.websocket_connect(f"/ws/rooms/{code}?callsign=K7ABC&token={room['agent_token']}") as browser:
             self.assertEqual(browser.receive_json()["type"], "room")
-            browser.send_json({"type": "radio_status", "status": {"connected": True, "transport": "serial"}})
+            browser.send_json({"type": "radio_status", "status": {"connected": True, "transport": "serial", "long_name": "Portland Moonbird"}})
             self.assertEqual(browser.receive_json(), {"type": "agent", "callsign": "K7ABC", "connected": True})
-            self.assertEqual(browser.receive_json()["type"], "agent_status")
+            status = browser.receive_json()
+            self.assertEqual(status["type"], "agent_status")
+            self.assertEqual(status["status"]["long_name"], "Portland Moonbird")
 
             response = self.client.post(f"/api/rooms/{code}/transmit/K7ABC", json={"text": "browser"})
             self.assertEqual(response.status_code, 200)

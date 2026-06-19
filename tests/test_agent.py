@@ -100,11 +100,13 @@ class AgentTests(unittest.TestCase):
             localNode=SimpleNamespace(localConfig=SimpleNamespace(lora=None), channels=[]),
             metadata=SimpleNamespace(),
             myInfo=None,
+            getLongName=lambda: "Portland Moonbird",
         )
         with patch("moonbird_agent.cli.protobuf_dict", side_effect=lambda value: {"hw_model": "TBEAM"} if value is bridge.interface.metadata else {}):
             status = bridge.status()
 
         self.assertEqual(status["board_model"], "TBEAM")
+        self.assertEqual(status["long_name"], "Portland Moonbird")
         loop.close()
 
 

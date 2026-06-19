@@ -117,12 +117,18 @@ class RadioBridge:
         lora = protobuf_dict(getattr(local_config, "lora", None))
         metadata = protobuf_dict(getattr(self.interface, "metadata", None))
         node = getattr(self.interface, "myInfo", None)
+        get_long_name = getattr(self.interface, "getLongName", None)
+        try:
+            long_name = get_long_name() if callable(get_long_name) else None
+        except (AttributeError, KeyError, TypeError):
+            long_name = None
         return {
             "connected": self.interface is not None,
             "transport": self.transport,
             "radio_target": self.target,
             "node": json_safe(node),
             "board_model": metadata.get("hw_model"),
+            "long_name": long_name,
             "metadata": metadata,
             "lora_config": lora,
         }

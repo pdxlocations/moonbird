@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Moonbird | Meshtastic EME</title>
     <link rel="icon" href="/static/assets/moonbird-logo.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/styles.css?v=20260619-2">
-    <link rel="stylesheet" href="/static/landing.css?v=20260619-2">
-    <link rel="stylesheet" href="/static/themes.css?v=20260619-2">
-    <link rel="stylesheet" href="/static/dashboard.css?v=20260619-2">
+    <link rel="stylesheet" href="/static/styles.css?v=20260619-3">
+    <link rel="stylesheet" href="/static/landing.css?v=20260619-3">
+    <link rel="stylesheet" href="/static/themes.css?v=20260619-3">
+    <link rel="stylesheet" href="/static/dashboard.css?v=20260619-3">
 </head>
 <body>
   <header class="topbar">
@@ -69,7 +69,7 @@
         </section>
 
         <section class="panel control-panel">
-          <div class="panel-head"><div><p class="eyebrow">Local station</p><h2>Radio control</h2></div><div class="agent-status-actions"><span id="agent-badge" class="badge">Radio offline</span><button id="disconnect-agent" type="button" class="outline" hidden>Disconnect radio</button></div></div>
+          <div class="panel-head"><div><p id="radio-station-name" class="eyebrow">Local station</p><h2>Radio control</h2></div><div class="agent-status-actions"><span id="agent-badge" class="badge">Radio offline</span><button id="disconnect-agent" type="button" class="outline" hidden>Disconnect radio</button></div></div>
           <div id="agent-setup">
             <div class="agent-fields">
               <label>Moonbird server<input id="agent-server" placeholder="http://127.0.0.1:8000"></label>
@@ -99,7 +99,7 @@
               <p>macOS/Linux setup: <code>python3.12 -m venv .agent-venv &amp;&amp; .agent-venv/bin/pip install -r requirements-agent.txt</code></p>
             </details>
           </div>
-          <form id="send-form">
+          <form id="send-form" hidden>
             <div class="message-builder-grid">
               <label>Message type<select name="message_type">
                 <option value="cq">1. Call (CQ)</option>
@@ -163,6 +163,6 @@
     <p id="detection-detail"></p><button id="dismiss-detection">Review evidence</button>
   </div>
   <div id="toast" class="toast" hidden></div>
-  <script type="module" src="/static/app.js?v=20260619-2"></script>
+  <script type="module" src="/static/app.js?v=20260619-3"></script>
 </body>
 </html>

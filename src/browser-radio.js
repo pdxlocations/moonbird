@@ -65,6 +65,9 @@ export class BrowserRadio {
     this.onTraffic = onTraffic;
     this.device = null;
     this.boardModel = null;
+    this.longName = null;
+    this.myNodeNum = null;
+    this.nodeNames = new Map();
     this.outgoingText = null;
   }
 
@@ -96,14 +99,32 @@ export class BrowserRadio {
         observed_at: new Date().toISOString(),
       });
     });
+    const publishLocalName = () => {
+      const longName = this.nodeNames.get(this.myNodeNum);
+      if (!longName) return;
+      this.longName = longName;
+      this.onStatus(true, this.boardModel, this.longName);
+    };
+    this.device.events.onMyNodeInfo.subscribe((info) => {
+      this.myNodeNum = info.myNodeNum;
+      publishLocalName();
+    });
+    this.device.events.onNodeInfoPacket.subscribe((info) => {
+      if (info.user?.longName) this.nodeNames.set(info.num, info.user.longName);
+      publishLocalName();
+    });
+    this.device.events.onUserPacket.subscribe((packet) => {
+      if (packet.data?.longName) this.nodeNames.set(packet.from, packet.data.longName);
+      publishLocalName();
+    });
     this.device.events.onDeviceMetadataPacket.subscribe((packet) => {
       const model = packet.data?.hwModel;
       this.boardModel = typeof model === "number" ? Protobuf.Mesh.HardwareModel[model] : model;
-      this.onStatus(true, this.boardModel);
+      this.onStatus(true, this.boardModel, this.longName);
     });
     this.device.events.onDeviceStatus.subscribe((status) => {
-      if (status === Types.DeviceStatusEnum.DeviceConfigured) this.onStatus(true, this.boardModel);
-      if (status === Types.DeviceStatusEnum.DeviceDisconnected) this.onStatus(false, this.boardModel);
+      if (status === Types.DeviceStatusEnum.DeviceConfigured) this.onStatus(true, this.boardModel, this.longName);
+      if (status === Types.DeviceStatusEnum.DeviceDisconnected) this.onStatus(false, this.boardModel, this.longName);
     });
     await this.device.configure();
     this.device.setHeartbeatInterval(300_000);
@@ -135,6 +156,6 @@ export class BrowserRadio {
   async disconnect() {
     if (this.device) await this.device.disconnect();
     this.device = null;
-    this.onStatus(false, this.boardModel);
+    this.onStatus(false, this.boardModel, this.longName);
   }
 }

@@ -78,6 +78,25 @@ class AppTests(unittest.TestCase):
         response = self.client.post(f"/api/rooms/{room['code']}/transmit/K7ABC", json={"text": "test"})
         self.assertEqual(response.status_code, 409)
 
+    def test_participants_can_chat_and_recover_history(self):
+        room = self.create_room()
+        joined = self.client.post(f"/api/rooms/{room['code']}/participants", json={
+            "callsign": "JA1XYZ", "latitude": 35.6762, "longitude": 139.6503,
+        }).json()
+        code = room["code"]
+        with self.client.websocket_connect(f"/ws/rooms/{code}?callsign=K7ABC&token={room['agent_token']}") as sender:
+            self.assertEqual(sender.receive_json()["type"], "room")
+            with self.client.websocket_connect(f"/ws/rooms/{code}?callsign=JA1XYZ&token={joined['agent_token']}") as receiver:
+                self.assertEqual(receiver.receive_json()["type"], "room")
+                sender.send_json({"type": "chat", "text": "Moon visible here"})
+                sent = sender.receive_json()
+                received = receiver.receive_json()
+                self.assertEqual(sent["type"], "chat")
+                self.assertEqual(received["message"]["callsign"], "K7ABC")
+                self.assertEqual(received["message"]["text"], "Moon visible here")
+        history = self.client.get(f"/api/rooms/{code}/chat").json()
+        self.assertEqual(history[-1]["text"], "Moon visible here")
+
     def test_agent_stream_transmit_and_candidate_detection(self):
         room = self.create_room()
         code = room["code"]
@@ -85,6 +104,17 @@ class AppTests(unittest.TestCase):
             self.assertEqual(browser.receive_json()["type"], "room")
             with self.client.websocket_connect(f"/ws/agents/{code}/K7ABC?token={room['agent_token']}") as agent:
                 self.assertEqual(browser.receive_json()["type"], "agent")
+                agent.send_json({"type": "status", "status": {"connected": True, "board_model": "TBEAM"}})
+                room_update = browser.receive_json()
+                self.assertEqual(room_update["type"], "room")
+                self.assertEqual(room_update["room"]["participants"][0]["equipment"]["radio"], "TBEAM")
+                self.assertEqual(browser.receive_json()["type"], "agent_status")
+                with self.client.websocket_connect(f"/ws/rooms/{code}?callsign=K7ABC") as late_browser:
+                    self.assertEqual(late_browser.receive_json()["type"], "room")
+                    self.assertEqual(late_browser.receive_json(), {"type": "agent", "callsign": "K7ABC", "connected": True})
+                    late_status = late_browser.receive_json()
+                    self.assertEqual(late_status["type"], "agent_status")
+                    self.assertEqual(late_status["status"]["board_model"], "TBEAM")
                 response = self.client.post(f"/api/rooms/{code}/transmit/K7ABC", json={
                     "message_type": "report", "text": "test", "destination_callsign": "ja1xyz", "report": -12,
                     "destination": "!20783f27", "channel": 2, "want_ack": False, "want_response": True,
@@ -125,6 +155,15 @@ class AppTests(unittest.TestCase):
                 self.assertFalse(second_command["want_ack"])
                 self.assertFalse(second_command["want_response"])
                 self.assertEqual(second_command["wire_text"], "CQ K7ABC CN85 second #2")
+                denied = self.client.post(f"/api/rooms/{code}/radio/K7ABC/disconnect", json={"agent_token": "wrong"})
+                self.assertEqual(denied.status_code, 403)
+                disconnected = self.client.post(
+                    f"/api/rooms/{code}/radio/K7ABC/disconnect",
+                    json={"agent_token": room["agent_token"]},
+                )
+                self.assertEqual(disconnected.status_code, 200)
+                self.assertTrue(disconnected.json()["disconnected"])
+                self.assertEqual(agent.receive_json(), {"type": "disconnect_radio"})
 
     def test_transmit_rejects_invalid_destination_callsign(self):
         room = self.create_room()

@@ -59,7 +59,8 @@ html[data-theme="dark"] .badge {
 }
 
 html[data-theme="dark"] .card button,
-html[data-theme="dark"] #send-form button {
+html[data-theme="dark"] #send-form button,
+html[data-theme="dark"] .chat-form button {
   background: #b8f43b;
   color: #09100c;
 }
@@ -106,7 +107,8 @@ html[data-theme="night"] .badge {
 
 html[data-theme="night"] .badge.connected,
 html[data-theme="night"] .card button,
-html[data-theme="night"] #send-form button {
+html[data-theme="night"] #send-form button,
+html[data-theme="night"] .chat-form button {
   background: #ff2418;
   color: #090000;
 }
@@ -132,6 +134,15 @@ html[data-theme="night"] .detection button {
 
 html[data-theme="night"] .rings i {
   border-color: #ff241888;
+}
+
+html[data-theme="dark"] img.brand-mark {
+  background: transparent;
+}
+
+html[data-theme="night"] img.brand-mark {
+  content: url("/static/assets/moonbird-logo-night.svg");
+  background: transparent;
 }
 
 html[data-theme="night"] .error:not(:empty) {

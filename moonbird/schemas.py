@@ -56,6 +56,22 @@ class RoleUpdate(BaseModel):
     _callsign = field_validator("callsign")(normalize_callsign)
 
 
+class RadioDisconnect(BaseModel):
+    agent_token: str = Field(min_length=1)
+
+
+class ChatInput(BaseModel):
+    text: str = Field(min_length=1, max_length=300)
+
+    @field_validator("text")
+    @classmethod
+    def clean_text(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            raise ValueError("chat message cannot be empty")
+        return text
+
+
 class TrafficInput(BaseModel):
     direction: Literal["tx", "rx", "event"]
     kind: str = Field(default="unknown", max_length=60)

@@ -10,6 +10,7 @@ class RoomHub:
     def __init__(self) -> None:
         self.browsers: dict[str, set[WebSocket]] = defaultdict(set)
         self.agents: dict[tuple[str, str], WebSocket] = {}
+        self.agent_statuses: dict[tuple[str, str], dict[str, Any]] = {}
 
     async def add_browser(self, room: str, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -24,10 +25,18 @@ class RoomHub:
         if old:
             await old.close(code=4001, reason="A newer agent connected")
         self.agents[(room, callsign)] = websocket
+        self.agent_statuses.pop((room, callsign), None)
 
     def remove_agent(self, room: str, callsign: str, websocket: WebSocket) -> None:
         if self.agents.get((room, callsign)) is websocket:
             self.agents.pop((room, callsign), None)
+            self.agent_statuses.pop((room, callsign), None)
+
+    def set_agent_status(self, room: str, callsign: str, status: dict[str, Any]) -> None:
+        self.agent_statuses[(room, callsign)] = status
+
+    def agent_status(self, room: str, callsign: str) -> dict[str, Any] | None:
+        return self.agent_statuses.get((room, callsign))
 
     async def broadcast(self, room: str, message: dict[str, Any]) -> None:
         stale = []
@@ -47,4 +56,6 @@ class RoomHub:
         return True
 
     def agent_connected(self, room: str, callsign: str) -> bool:
-        return (room, callsign) in self.agents
+        key = (room, callsign)
+        status = self.agent_statuses.get(key)
+        return key in self.agents and (status is None or status.get("connected", False))

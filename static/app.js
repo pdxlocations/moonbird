@@ -1,7 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, span: "day", traffic: [], filter: "all", scene: null };
+const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, span: "day", traffic: [], chat: [], filter: "all", expandedTrafficId: null, scene: null, bluetoothScan: null, bluetoothAdvertisementHandler: null, bluetoothDevices: new Map() };
 const THEME_KEY = "moonbird:theme";
+const MESHTASTIC_BLUETOOTH_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd";
+const BLUETOOTH_IDENTIFIER_VERSION = "advertised-name-v2";
 
 function setTheme(theme) {
   const selected = ["light", "dark", "night"].includes(theme) ? theme : "light";
@@ -23,7 +25,7 @@ async function api(url, options = {}) {
 
 function formObject(form) { return Object.fromEntries(new FormData(form).entries()); }
 function stationPayload(values) { return values.location_mode === "grid" ? { grid_square: values.grid_square.trim().toUpperCase(), elevation_m: 0 } : { latitude: Number(values.latitude), longitude: Number(values.longitude), elevation_m: 0 }; }
-function equipment() { return { frequency_mhz: 145.05, amplifier_w: 50, antenna_gain_dbi: 11.6, radio: "LilyGo T-Beam BPF" }; }
+function equipment() { return { frequency_mhz: 145.05, amplifier_w: 50, antenna_gain_dbi: 11.6 }; }
 function showError(error) { $("#entry-error").textContent = error.message; toast(error.message); }
 function toast(message) { const el = $("#toast"); el.textContent = message; el.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => { el.hidden = true; }, 3500); }
 
@@ -116,7 +118,7 @@ function enterRoom(room) {
   $("#room-title").textContent = room.title; $("#room-code").textContent = room.code;
   $("#export-json").href = `/api/rooms/${room.code}/export.json`; $("#export-csv").href = `/api/rooms/${room.code}/traffic.csv`;
   $("#live-state").classList.add("online"); $("#live-state").lastChild.textContent = ` Room ${room.code}`;
-  renderRoom(); connectSocket(); initScene(); loadTraffic(); loadForecast();
+  renderRoom(); connectSocket(); initScene(); loadTraffic(); loadChat(); loadForecast();
 }
 
 function renderRoom() {
@@ -145,22 +147,118 @@ function defaultAgentServer() {
   return url.origin;
 }
 
+function shellArgument(value) {
+  if (!/[\s"'\\]/.test(value)) return value;
+  if (/Windows/i.test(navigator.userAgent)) return `"${value.replaceAll('"', '\\"')}"`;
+  return `'${value.split("'").join("'\"'\"'")}'`;
+}
+
 function initializeAgentSetup() {
   const serverInput = $("#agent-server");
   const radioInput = $("#radio-host");
   if (!serverInput.value) serverInput.value = localStorage.getItem("moonbird:agent-server") || defaultAgentServer();
   if (!radioInput.value) radioInput.value = localStorage.getItem("moonbird:radio-host") || "meshtastic.local";
+  if (!$("#serial-port").value) $("#serial-port").value = localStorage.getItem("moonbird:serial-port") || "";
+  if (localStorage.getItem("moonbird:bluetooth-identifier-version") !== BLUETOOTH_IDENTIFIER_VERSION) {
+    localStorage.removeItem("moonbird:bluetooth-address");
+    localStorage.setItem("moonbird:bluetooth-identifier-version", BLUETOOTH_IDENTIFIER_VERSION);
+  }
+  if (!$("#bluetooth-address").value) $("#bluetooth-address").value = localStorage.getItem("moonbird:bluetooth-address") || "";
+  if (!$("#radio-transport").dataset.initialized) {
+    $("#radio-transport").value = localStorage.getItem("moonbird:radio-transport") || "tcp";
+    $("#radio-transport").dataset.initialized = "true";
+  }
+  updateRadioTransport();
+  updateAgentCommand();
+}
+
+function updateRadioTransport() {
+  const transport = $("#radio-transport").value;
+  $$('[data-radio-transport]').forEach((element) => { element.hidden = element.dataset.radioTransport !== transport; });
+  localStorage.setItem("moonbird:radio-transport", transport);
   updateAgentCommand();
 }
 
 function updateAgentCommand() {
   if (!state.room) return;
   const server = $("#agent-server").value.trim() || defaultAgentServer();
-  const radio = $("#radio-host").value.trim() || "meshtastic.local";
+  const transport = $("#radio-transport").value;
+  const targets = {
+    tcp: { flag: "--radio-host", storageKey: "moonbird:radio-host", value: $("#radio-host").value.trim() || "meshtastic.local" },
+    serial: { flag: "--serial-port", storageKey: "moonbird:serial-port", value: $("#serial-port").value.trim() },
+    bluetooth: { flag: "--bluetooth-address", storageKey: "moonbird:bluetooth-address", value: $("#bluetooth-address").value.trim() },
+  };
+  const target = targets[transport];
   localStorage.setItem("moonbird:agent-server", server);
-  localStorage.setItem("moonbird:radio-host", radio);
+  localStorage.setItem(target.storageKey, target.value);
+  const command = $("#agent-command");
+  const copyButton = $("#copy-agent-command");
+  if (!target.value) {
+    command.textContent = transport === "bluetooth" ? "Select a Bluetooth device or enter its address." : "Enter the serial port.";
+    command.classList.add("incomplete");
+    copyButton.disabled = true;
+    return;
+  }
   const python = /Windows/i.test(navigator.userAgent) ? ".agent-venv\\Scripts\\python.exe" : ".agent-venv/bin/python";
-  $("#agent-command").textContent = `${python} -m moonbird_agent --server ${server} --room ${state.room.code} --callsign ${state.callsign} --token ${state.agentToken} --radio-host ${radio} --allow-transmit`;
+  command.textContent = `${python} -m moonbird_agent --server ${server} --room ${state.room.code} --callsign ${state.callsign} --token ${state.agentToken} ${target.flag} ${shellArgument(target.value)} --allow-transmit`;
+  command.classList.remove("incomplete");
+  copyButton.disabled = false;
+}
+
+function showBluetoothMessage(message) {
+  const results = $("#bluetooth-results");
+  results.hidden = false;
+  results.innerHTML = "";
+  const text = document.createElement("p"); text.textContent = message; results.append(text);
+}
+
+function addBluetoothDevice(device) {
+  if (!device?.id) return;
+  const identifier = device.name?.trim();
+  state.bluetoothDevices.set(device.id, device);
+  const results = $("#bluetooth-results");
+  results.hidden = false;
+  results.querySelector("p")?.remove();
+  if (results.querySelector(`[data-device-id="${CSS.escape(device.id)}"]`)) return;
+  const button = document.createElement("button"); button.type = "button"; button.dataset.deviceId = device.id; button.setAttribute("role", "option");
+  const name = document.createElement("strong"); name.textContent = identifier || "Unnamed Meshtastic device";
+  const id = document.createElement("span"); id.textContent = identifier ? "Use advertised name" : "No usable name; enter its OS address manually";
+  button.append(name, id);
+  button.disabled = !identifier;
+  button.addEventListener("click", () => {
+    $("#bluetooth-address").value = identifier;
+    localStorage.setItem("moonbird:bluetooth-address", identifier);
+    updateAgentCommand();
+    $$("#bluetooth-results button").forEach((item) => item.setAttribute("aria-selected", String(item === button)));
+  });
+  results.append(button);
+}
+
+async function scanBluetoothDevices() {
+  const scanButton = $("#scan-bluetooth");
+  if (!navigator.bluetooth) { showBluetoothMessage("Web Bluetooth is unavailable. Enter the device address manually."); return; }
+  scanButton.disabled = true; scanButton.textContent = "Scanning…";
+  state.bluetoothDevices.clear(); showBluetoothMessage("Scanning for Meshtastic devices…");
+  try {
+    if (navigator.bluetooth.requestLEScan) {
+      state.bluetoothScan?.stop();
+      if (state.bluetoothAdvertisementHandler) navigator.bluetooth.removeEventListener("advertisementreceived", state.bluetoothAdvertisementHandler);
+      state.bluetoothAdvertisementHandler = (event) => addBluetoothDevice(event.device);
+      navigator.bluetooth.addEventListener("advertisementreceived", state.bluetoothAdvertisementHandler);
+      state.bluetoothScan = await navigator.bluetooth.requestLEScan({ filters: [{ services: [MESHTASTIC_BLUETOOTH_SERVICE] }], keepRepeatedDevices: false });
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      state.bluetoothScan.stop(); state.bluetoothScan = null;
+      if (!state.bluetoothDevices.size) showBluetoothMessage("No Meshtastic devices found.");
+    } else {
+      const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [MESHTASTIC_BLUETOOTH_SERVICE] }] });
+      addBluetoothDevice(device);
+    }
+  } catch (error) {
+    if (error.name !== "NotFoundError") showBluetoothMessage(error.message || "Bluetooth scan failed.");
+    else if (!state.bluetoothDevices.size) showBluetoothMessage("No device selected.");
+  } finally {
+    scanButton.disabled = false; scanButton.textContent = "Scan for devices";
+  }
 }
 
 async function updateRole(callsign, role) {
@@ -174,11 +272,13 @@ function remoteStation() { return state.room?.participants.find((station) => sta
 function connectSocket() {
   if (state.socket) state.socket.close();
   const protocol = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${location.host}/ws/rooms/${state.room.code}?callsign=${encodeURIComponent(state.callsign)}`); state.socket = socket;
+  const socket = new WebSocket(`${protocol}://${location.host}/ws/rooms/${state.room.code}?callsign=${encodeURIComponent(state.callsign)}&token=${encodeURIComponent(state.agentToken)}`); state.socket = socket;
   socket.addEventListener("message", ({ data }) => {
     const message = JSON.parse(data);
     if (message.type === "room") { state.room = message.room; renderRoom(); loadForecast(); }
     if (message.type === "traffic") { state.traffic.unshift(message.traffic); renderTraffic(); }
+    if (message.type === "chat") { state.chat.push(message.message); state.chat = state.chat.slice(-200); renderChat(); }
+    if (message.type === "chat_error") toast(message.detail);
     if (message.type === "detection") celebrate(message.detection);
     if (message.type === "agent" && message.callsign === state.callsign) setAgent(message.connected);
     if (message.type === "agent_status" && message.callsign === state.callsign) renderAgentStatus(message.status);
@@ -187,16 +287,14 @@ function connectSocket() {
   socket.addEventListener("close", () => { clearInterval(connectSocket.ping); setTimeout(() => state.room && connectSocket(), 2500); });
 }
 
-function setAgent(connected) { $("#agent-badge").textContent = connected ? "Agent connected" : "Agent offline"; $("#agent-badge").classList.toggle("connected", connected); $("#agent-setup").hidden = connected; }
+function setAgent(connected) {
+  $("#agent-badge").textContent = connected ? "Agent connected" : "Agent offline";
+  $("#agent-badge").classList.toggle("connected", connected);
+  $("#disconnect-agent").hidden = !connected;
+  $("#agent-setup").hidden = connected;
+}
 function renderAgentStatus(status) {
   setAgent(status.connected);
-  if (status.checks || status.recommendations) {
-    const checks = (status.checks || []).map((item) => `<li><b>${escapeHtml(item.name)} [${escapeHtml(item.status)}]</b> ${escapeHtml(item.detail)}</li>`).join("");
-    const recommendations = (status.recommendations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-    $("#recommendation-content").innerHTML = `<ul>${checks}${recommendations}</ul>`;
-    const warnings = (status.checks || []).filter((item) => item.status !== "pass").length;
-    $("#check-summary").textContent = warnings ? `${warnings} item${warnings === 1 ? "" : "s"} to review` : "All reported checks pass";
-  }
 }
 
 $("#send-form").addEventListener("submit", async (event) => {
@@ -267,13 +365,47 @@ function renderTraffic() {
   if (!visible.length) { stream.innerHTML = `<p class="empty">No matching traffic recorded.</p>`; return; }
   for (const item of visible) {
     const row = document.createElement("div"); row.className = "traffic-row";
+    const itemId = String(item.id ?? `${item.callsign}:${item.received_at || item.observed_at}:${item.packet_id || ""}`);
+    const expanded = state.expandedTrafficId === itemId;
+    row.classList.toggle("expanded", expanded); row.tabIndex = 0; row.setAttribute("role", "button"); row.setAttribute("aria-expanded", String(expanded));
     const time = document.createElement("span"); time.textContent = new Date(item.received_at || item.observed_at).toLocaleTimeString();
+    const callsign = document.createElement("strong"); callsign.textContent = item.callsign;
     const dir = document.createElement("strong"); dir.className = item.direction; dir.textContent = item.direction.toUpperCase();
     const kind = document.createElement("span"); kind.textContent = item.kind;
-    const payload = document.createElement("code"); payload.textContent = JSON.stringify(item.payload);
-    row.append(time, dir, kind, payload); row.title = payload.textContent; stream.append(row);
+    const payload = document.createElement("code"); payload.textContent = JSON.stringify(item.payload, null, expanded ? 2 : 0);
+    row.append(time, callsign, dir, kind, payload); row.title = payload.textContent; stream.append(row);
+    const toggle = () => { state.expandedTrafficId = expanded ? null : itemId; renderTraffic(); };
+    row.addEventListener("click", toggle);
+    row.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); } });
   }
 }
+
+async function loadChat() {
+  try {
+    const history = await api(`/api/rooms/${state.room.code}/chat?limit=50`);
+    const messages = new Map([...history, ...state.chat].map((message) => [message.id, message]));
+    state.chat = [...messages.values()].sort((left, right) => left.id - right.id).slice(-200);
+    renderChat();
+  } catch (error) { toast(error.message); }
+}
+function renderChat() {
+  const container = $("#chat-messages"); container.innerHTML = "";
+  if (!state.chat.length) { container.innerHTML = '<p class="empty">No messages yet.</p>'; return; }
+  for (const message of state.chat) {
+    const row = document.createElement("div"); row.className = "chat-message";
+    const meta = document.createElement("span"); meta.textContent = `${message.callsign} · ${new Date(message.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    const text = document.createElement("p"); text.textContent = message.text;
+    row.append(meta, text); container.append(row);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+$("#chat-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const input = event.currentTarget.elements.text; const text = input.value.trim();
+  if (!text || state.socket?.readyState !== WebSocket.OPEN) return;
+  state.socket.send(JSON.stringify({ type: "chat", text })); input.value = "";
+});
 
 $$('.stream-filter button').forEach((button) => button.addEventListener("click", () => { $$('.stream-filter button').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.kind; renderTraffic(); }));
 $$('.tabs button').forEach((button) => button.addEventListener("click", () => { $$('.tabs button').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.span = button.dataset.span; loadForecast(); }));
@@ -283,8 +415,31 @@ async function loadForecast() {
   const remote = remoteStation();
   const query = new URLSearchParams({ lat: local.latitude, lon: local.longitude, elevation_m: local.elevation_m, span: state.span });
   if (remote) { query.set("remote_lat", remote.latitude); query.set("remote_lon", remote.longitude); query.set("remote_elevation_m", remote.elevation_m); }
-  try { const forecast = await api(`/api/planning?${query}`); renderForecast(forecast); const current = forecast.samples[0]?.tx || forecast.samples[0]; updateScene(current, local, remote); }
+  try {
+    const forecast = await api(`/api/planning?${query}`);
+    renderForecast(forecast);
+    const sample = forecast.samples[0];
+    const current = sample?.tx || sample;
+    updateScene(current, local, remote, {
+      moonPathKm: sample?.moon_path_distance_km,
+      earthPathKm: forecast.earth_path_distance_km,
+    });
+  }
   catch (error) { toast(error.message); }
+}
+
+function smoothChartPath(list, field, x, y) {
+  const points = list.map((sample, index) => ({ x: x(index), y: y(sample[field]) }));
+  if (!points.length) return "";
+  if (points.length === 1) return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+  let path = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const p0 = points[Math.max(0, index - 1)], p1 = points[index], p2 = points[index + 1], p3 = points[Math.min(points.length - 1, index + 2)];
+    const c1 = { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
+    const c2 = { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
+    path += ` C${c1.x.toFixed(1)},${c1.y.toFixed(1)} ${c2.x.toFixed(1)},${c2.y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+  }
+  return path;
 }
 
 function renderForecast(data) {
@@ -293,10 +448,27 @@ function renderForecast(data) {
   const yElevation = (value) => 10 + (90 - Math.max(-30, Math.min(90, value))) / 120 * plotH;
   const yQuality = (value) => 10 + (100 - value) / 100 * plotH;
   const tx = samples.map((sample) => sample.tx || sample); const rx = shared ? samples.map((sample) => sample.rx) : [];
-  const path = (list, field, yFn) => list.map((sample, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${yFn(sample[field]).toFixed(1)}`).join(" ");
   const windows = shared ? samples.map((sample, index) => sample.shared_visible ? `<rect x="${x(index)}" y="10" width="${plotW / samples.length + 1}" height="${plotH}" fill="var(--lime)" opacity=".23"/>` : "").join("") : "";
   const labels = [0, .25, .5, .75, 1].map((part) => { const index = Math.min(samples.length - 1, Math.floor((samples.length - 1) * part)); const at = new Date((samples[index].tx || samples[index]).at); const label = ["hour", "day"].includes(state.span) ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : at.toLocaleDateString([], state.span === "year" ? { month: "short" } : { month: "short", day: "numeric" }); return `<text x="${x(index)}" y="255" text-anchor="middle">${label}</text>`; }).join("");
-  $("#forecast-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><g class="grid">${[0,30,60,90].map((v) => `<line x1="${left}" x2="${width}" y1="${yElevation(v)}" y2="${yElevation(v)}"/><text x="34" y="${yElevation(v)+4}" text-anchor="end">${v}°</text>`).join("")}${labels}</g>${windows}<path d="${path(tx,"elevation_deg",yElevation)}" fill="none" stroke="var(--orange)" stroke-width="3" vector-effect="non-scaling-stroke"/>${shared ? `<path d="${path(rx,"elevation_deg",yElevation)}" fill="none" stroke="var(--blue)" stroke-width="3" vector-effect="non-scaling-stroke"/>` : ""}<path d="${path(tx,"quality",yQuality)}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/></svg>`;
+  $("#forecast-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><g class="grid">${[0,30,60,90].map((v) => `<line x1="${left}" x2="${width}" y1="${yElevation(v)}" y2="${yElevation(v)}"/><text x="34" y="${yElevation(v)+4}" text-anchor="end">${v}°</text>`).join("")}${labels}</g>${windows}<path d="${smoothChartPath(tx,"elevation_deg",x,yElevation)}" fill="none" stroke="var(--orange)" stroke-width="3" vector-effect="non-scaling-stroke"/>${shared ? `<path d="${smoothChartPath(rx,"elevation_deg",x,yElevation)}" fill="none" stroke="var(--blue)" stroke-width="3" vector-effect="non-scaling-stroke"/>` : ""}<path d="${smoothChartPath(tx,"quality",x,yQuality)}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/><g class="chart-scrubber"><line y1="10" y2="${10 + plotH}"/><circle class="tx-point" r="5"/><circle class="rx-point" r="5" ${shared ? "" : "hidden"}/></g><rect class="chart-hit-area" x="${left}" y="10" width="${plotW}" height="${plotH}"/></svg>`;
+  const svg = $("#forecast-chart svg"), scrubber = svg.querySelector(".chart-scrubber"), txPoint = scrubber.querySelector(".tx-point"), rxPoint = scrubber.querySelector(".rx-point"), readout = $("#forecast-scrub-readout");
+  const showSample = (index) => {
+    const sample = samples[index], txSample = sample.tx || sample, rxSample = sample.rx;
+    const sampleX = x(index); scrubber.querySelector("line").setAttribute("x1", sampleX); scrubber.querySelector("line").setAttribute("x2", sampleX);
+    txPoint.setAttribute("cx", sampleX); txPoint.setAttribute("cy", yElevation(txSample.elevation_deg));
+    if (rxSample) { rxPoint.setAttribute("cx", sampleX); rxPoint.setAttribute("cy", yElevation(rxSample.elevation_deg)); }
+    const at = new Date(txSample.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const remote = remoteStation(); readout.textContent = `${at} · ${state.callsign} ${txSample.elevation_deg.toFixed(1)}°${rxSample && remote ? ` · ${remote.callsign} ${rxSample.elevation_deg.toFixed(1)}°` : ""}`;
+  };
+  const scrub = (event) => {
+    const bounds = svg.getBoundingClientRect();
+    const plotLeft = bounds.left + left / width * bounds.width, plotWidth = plotW / width * bounds.width;
+    const position = Math.max(0, Math.min(1, (event.clientX - plotLeft) / plotWidth));
+    showSample(Math.round(position * (samples.length - 1)));
+  };
+  svg.querySelector(".chart-hit-area").addEventListener("pointermove", scrub);
+  svg.querySelector(".chart-hit-area").addEventListener("pointerdown", (event) => { event.currentTarget.setPointerCapture(event.pointerId); scrub(event); });
+  showSample(0);
   const visible = shared ? samples.filter((sample) => sample.shared_visible).length : tx.filter((sample) => sample.visible).length;
   $("#forecast-note").textContent = shared ? `${visible} of ${samples.length} samples have simultaneous Moon visibility for ${state.callsign} and ${remoteStation().callsign}.` : `${visible} of ${samples.length} samples have the Moon above your horizon.`;
 }
@@ -420,9 +592,14 @@ function drawSunBands(context, size) {
 function stationBasis(THREE, station) { const latitude = THREE.MathUtils.degToRad(station.latitude), longitude = THREE.MathUtils.degToRad(station.longitude); const up = new THREE.Vector3(Math.cos(latitude) * Math.cos(longitude), Math.sin(latitude), -Math.cos(latitude) * Math.sin(longitude)).normalize(); const north = new THREE.Vector3(-Math.sin(latitude) * Math.cos(longitude), Math.cos(latitude), Math.sin(latitude) * Math.sin(longitude)).normalize(); const east = new THREE.Vector3(-Math.sin(longitude), 0, -Math.cos(longitude)).normalize(); return { up, north, east }; }
 function globePoint(station) { return stationBasis(state.THREE, station).up.multiplyScalar(1.04); }
 function horizontalPoint(THREE, station, azimuthDeg, elevationDeg, radius) { const { up, north, east } = stationBasis(THREE, station), azimuth = THREE.MathUtils.degToRad(azimuthDeg), elevation = THREE.MathUtils.degToRad(elevationDeg), horizontal = Math.cos(elevation); return north.multiplyScalar(horizontal * Math.cos(azimuth)).add(east.multiplyScalar(horizontal * Math.sin(azimuth))).add(up.multiplyScalar(Math.sin(elevation))).normalize().multiplyScalar(radius); }
-function updateScene(current, local, remote) {
+function updateScene(current, local, remote, paths = {}) {
   if (!current || !state.scene) return; const THREE = state.THREE; state.scene.moon.position.copy(horizontalPoint(THREE, local, current.azimuth_deg, current.elevation_deg, 3.1)); state.scene.sun.position.copy(horizontalPoint(THREE, local, current.sun_azimuth_deg, current.sun_elevation_deg, 4.6)); state.scene.light.position.copy(state.scene.sun.position).multiplyScalar(2); state.scene.localPin.position.copy(globePoint(local)); state.scene.remotePin.visible = Boolean(remote); if (remote) state.scene.remotePin.position.copy(globePoint(remote)); state.scene.pathLine.geometry.setFromPoints([state.scene.localPin.position, state.scene.moon.position]); state.scene.pathLine.computeLineDistances();
   $("#stat-az").textContent = `${current.azimuth_deg.toFixed(1)}°`; $("#stat-el").textContent = `${current.elevation_deg.toFixed(1)}°`; $("#stat-delay").textContent = `${(current.round_trip_ms / 1000).toFixed(3)} s`; $("#stat-delay").parentElement.title = `${Math.round(current.distance_km * 2).toLocaleString()} km Earth-Moon-Earth vacuum path. Radio airtime, transmit queueing, and receiver decode time are additional.`; $("#stat-doppler").textContent = `${current.doppler_hz > 0 ? "+" : ""}${current.doppler_hz.toFixed(0)} Hz`;
+  $("#stat-moon-distance").textContent = `${Math.round(current.distance_km).toLocaleString()} km`;
+  $("#stat-moon-path").textContent = paths.moonPathKm == null ? "—" : `${Math.round(paths.moonPathKm).toLocaleString()} km`;
+  $("#stat-earth-path").textContent = paths.earthPathKm == null ? "—" : `${Math.round(paths.earthPathKm).toLocaleString()} km`;
+  $("#stat-moon-path-label").textContent = remote ? `Via Moon to ${remote.callsign}` : "Via Moon";
+  $("#stat-earth-path-label").textContent = remote ? `Via Earth to ${remote.callsign}` : "Via Earth";
 }
 
 function celebrate(detection) {
@@ -431,15 +608,24 @@ function celebrate(detection) {
 }
 
 $("#dismiss-detection").addEventListener("click", () => { $("#detection").hidden = true; });
-const checksPanel = $("#recommendations");
-checksPanel.open = localStorage.getItem("moonbird:checks-open") === "true";
-checksPanel.addEventListener("toggle", () => localStorage.setItem("moonbird:checks-open", String(checksPanel.open)));
 $("#copy-room").addEventListener("click", async () => {
   try { await copyText(`${location.origin}/?room=${state.room.code}`); toast("Room link copied"); }
   catch (error) { toast(`${error.message}. Select the link and copy it manually.`); }
 });
 $("#agent-server").addEventListener("input", updateAgentCommand);
 $("#radio-host").addEventListener("input", updateAgentCommand);
+$("#serial-port").addEventListener("input", updateAgentCommand);
+$("#bluetooth-address").addEventListener("input", updateAgentCommand);
+$("#radio-transport").addEventListener("change", updateRadioTransport);
+$("#scan-bluetooth").addEventListener("click", scanBluetoothDevices);
+$("#disconnect-agent").addEventListener("click", async () => {
+  const button = $("#disconnect-agent"); button.disabled = true; button.textContent = "Disconnecting…";
+  try {
+    await api(`/api/rooms/${state.room.code}/radio/${state.callsign}/disconnect`, { method: "POST", body: JSON.stringify({ agent_token: state.agentToken }) });
+    setAgent(false);
+  } catch (error) { toast(error.message); }
+  finally { button.disabled = false; button.textContent = "Disconnect radio"; }
+});
 $("#copy-agent-command").addEventListener("click", async () => {
   try { await copyText($("#agent-command").textContent); toast("Agent command copied"); }
   catch (error) {

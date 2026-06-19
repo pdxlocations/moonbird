@@ -63,27 +63,38 @@ def protobuf_dict(message: Any) -> dict[str, Any]:
 
 
 class RadioBridge:
-    def __init__(self, host: str, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
-        self.host = host
+    def __init__(self, target: str, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, transport: str = "tcp"):
+        self.target = target
+        self.transport = transport
         self.queue = queue
         self.loop = loop
         self.interface = None
 
     def connect(self) -> None:
         try:
-            from meshtastic.tcp_interface import TCPInterface
             from pubsub import pub
         except ImportError as exc:
             raise RuntimeError("Install agent dependencies with: pip install -r requirements-agent.txt") from exc
         # A malformed cached remote NodeInfo can make the Python client reject
         # the entire initial FromRadio database stream. Moonbird only needs the
         # local config plus live packets, so skip the historical node dump.
-        self.interface = TCPInterface(hostname=self.host, timeout=15, noNodes=True)
+        if self.transport == "tcp":
+            from meshtastic.tcp_interface import TCPInterface
+            self.interface = TCPInterface(hostname=self.target, timeout=15, noNodes=True)
+        elif self.transport == "serial":
+            from meshtastic.serial_interface import SerialInterface
+            self.interface = SerialInterface(devPath=self.target, timeout=15, noNodes=True)
+        elif self.transport == "bluetooth":
+            from meshtastic.ble_interface import BLEInterface
+            self.interface = BLEInterface(address=self.target, timeout=30, noNodes=True)
+        else:
+            raise ValueError(f"unsupported radio transport: {self.transport}")
         pub.subscribe(self.on_receive, "meshtastic.receive")
 
     def close(self) -> None:
         if self.interface:
             self.interface.close()
+            self.interface = None
 
     def on_receive(self, packet, interface=None) -> None:
         safe_packet = json_safe(packet)
@@ -101,34 +112,20 @@ class RadioBridge:
         self.loop.call_soon_threadsafe(self.queue.put_nowait, event)
 
     def status(self) -> dict[str, Any]:
-        recommendations = [
-            "Use a dedicated experiment channel.",
-            "Configure hop limit in Meshtastic settings; Moonbird does not override it per message.",
-            "Synchronize the agent computer clock with NTP.",
-            "Confirm 145.050 MHz operation, station identification, power, and emission comply with local amateur rules.",
-            "Verify amplifier duty cycle, filtering, antenna aim, and receive recovery before transmitting.",
-        ]
         local_node = getattr(self.interface, "localNode", None)
         local_config = getattr(local_node, "localConfig", None)
         lora = protobuf_dict(getattr(local_config, "lora", None))
-        channels = json_safe(getattr(local_node, "channels", []))
-        configured_hops = lora.get("hop_limit")
-        checks = [
-            {"name": "TCP radio", "status": "pass", "detail": self.host},
-            {
-                "name": "Default hop limit",
-                "status": "pass" if configured_hops is not None else "review",
-                "detail": f"{configured_hops if configured_hops is not None else 'unknown'}; using node configuration",
-            },
-            {
-                "name": "Dedicated channel",
-                "status": "review",
-                "detail": f"{len(channels) if isinstance(channels, list) else 'unknown'} channel records; confirm the selected channel is experiment-only",
-            },
-            {"name": "145.050 MHz RF chain", "status": "review", "detail": "Frequency, BPF, amplifier, and antenna cannot be verified through the Meshtastic TCP API"},
-        ]
+        metadata = protobuf_dict(getattr(self.interface, "metadata", None))
         node = getattr(self.interface, "myInfo", None)
-        return {"connected": self.interface is not None, "tcp_host": self.host, "node": json_safe(node), "lora_config": lora, "checks": checks, "recommendations": recommendations}
+        return {
+            "connected": self.interface is not None,
+            "transport": self.transport,
+            "radio_target": self.target,
+            "node": json_safe(node),
+            "board_model": metadata.get("hw_model"),
+            "metadata": metadata,
+            "lora_config": lora,
+        }
 
     def transmit(self, command: dict[str, Any], callsign: str) -> dict[str, Any]:
         if not self.interface:
@@ -168,7 +165,13 @@ async def run(args: argparse.Namespace) -> None:
 
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
-    radio = RadioBridge(args.radio_host, queue, loop)
+    targets = {
+        "tcp": args.radio_host,
+        "serial": args.serial_port,
+        "bluetooth": args.bluetooth_address,
+    }
+    transport, target = next((kind, value) for kind, value in targets.items() if value is not None)
+    radio = RadioBridge(target, queue, loop, transport)
     radio.connect()
     scheme = "wss" if args.server.startswith("https://") else "ws"
     server = args.server.split("://", 1)[-1].rstrip("/")
@@ -185,6 +188,10 @@ async def run(args: argparse.Namespace) -> None:
             try:
                 async for raw in socket:
                     command = json.loads(raw)
+                    if command.get("type") == "disconnect_radio":
+                        radio.close()
+                        await queue.put({"type": "status", "status": radio.status()})
+                        continue
                     if command.get("type") != "transmit":
                         continue
                     if not args.allow_transmit:
@@ -198,12 +205,15 @@ async def run(args: argparse.Namespace) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Connect a local Meshtastic TCP node to a Moonbird room")
+    result = argparse.ArgumentParser(description="Connect a local Meshtastic node to a Moonbird room")
     result.add_argument("--server", required=True, help="Moonbird URL, for example https://moonbird.example")
     result.add_argument("--room", required=True, help="Room code")
     result.add_argument("--callsign", required=True)
     result.add_argument("--token", required=True, help="Participant agent token returned when joining")
-    result.add_argument("--radio-host", required=True, help="Local Meshtastic TCP hostname or IP")
+    transport = result.add_mutually_exclusive_group(required=True)
+    transport.add_argument("--radio-host", help="Meshtastic TCP hostname or IP")
+    transport.add_argument("--serial-port", help="Meshtastic serial device path or port")
+    transport.add_argument("--bluetooth-address", help="Meshtastic Bluetooth advertised name or OS address")
     result.add_argument("--allow-transmit", action="store_true", help="Allow this server room to request radio transmissions")
     return result
 

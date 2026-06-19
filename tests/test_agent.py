@@ -4,7 +4,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
-from moonbird_agent.cli import RadioBridge, classify_packet, json_safe
+from moonbird_agent.cli import RadioBridge, classify_packet, json_safe, parser
 
 
 class AgentTests(unittest.TestCase):
@@ -39,6 +39,34 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(options["noNodes"])
         self.assertEqual(options["timeout"], 15)
 
+    def test_serial_and_bluetooth_interfaces_receive_selected_targets(self):
+        cases = [
+            ("serial", "meshtastic.serial_interface", "SerialInterface", "/dev/ttyUSB0", "devPath", 15),
+            ("bluetooth", "meshtastic.ble_interface", "BLEInterface", "AA:BB:CC:DD:EE:FF", "address", 30),
+        ]
+        for transport, module_name, class_name, target, target_key, timeout in cases:
+            with self.subTest(transport=transport):
+                options = {}
+                interface_module = ModuleType(module_name)
+                setattr(interface_module, class_name, lambda **kwargs: options.update(kwargs) or SimpleNamespace())
+                pub_module = ModuleType("pubsub")
+                pub_module.pub = SimpleNamespace(subscribe=lambda *args: None)
+                loop = asyncio.new_event_loop()
+                with patch.dict(sys.modules, {module_name: interface_module, "pubsub": pub_module}):
+                    RadioBridge(target, asyncio.Queue(), loop, transport).connect()
+                loop.close()
+                self.assertEqual(options[target_key], target)
+                self.assertEqual(options["timeout"], timeout)
+                self.assertTrue(options["noNodes"])
+
+    def test_cli_requires_exactly_one_radio_transport(self):
+        common = ["--server", "http://localhost", "--room", "ROOM1234", "--callsign", "K7ABC", "--token", "secret"]
+        self.assertEqual(parser().parse_args([*common, "--serial-port", "/dev/ttyUSB0"]).serial_port, "/dev/ttyUSB0")
+        with self.assertRaises(SystemExit):
+            parser().parse_args(common)
+        with self.assertRaises(SystemExit):
+            parser().parse_args([*common, "--radio-host", "radio.local", "--bluetooth-address", "device-id"])
+
     def test_transmit_builds_exact_envelope_and_meshtastic_fields(self):
         sent = {}
         interface = SimpleNamespace(sendText=lambda text, **kwargs: sent.update(text=text, **kwargs) or {"id": 9})
@@ -63,6 +91,20 @@ class AgentTests(unittest.TestCase):
         self.assertNotIn("replyId", sent)
         self.assertEqual(sent["portNum"], 1)
         self.assertEqual(event["traffic"]["packet_id"], "17")
+        loop.close()
+
+    def test_status_reports_radio_board_model_from_metadata(self):
+        loop = asyncio.new_event_loop()
+        bridge = RadioBridge("radio.local", asyncio.Queue(), loop)
+        bridge.interface = SimpleNamespace(
+            localNode=SimpleNamespace(localConfig=SimpleNamespace(lora=None), channels=[]),
+            metadata=SimpleNamespace(),
+            myInfo=None,
+        )
+        with patch("moonbird_agent.cli.protobuf_dict", side_effect=lambda value: {"hw_model": "TBEAM"} if value is bridge.interface.metadata else {}):
+            status = bridge.status()
+
+        self.assertEqual(status["board_model"], "TBEAM")
         loop.close()
 
 

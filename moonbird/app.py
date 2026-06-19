@@ -17,7 +17,7 @@ from .config import Settings, load_settings
 from .maidenhead import maidenhead_from_coordinates
 from .models import Database, utc_now
 from .realtime import RoomHub
-from .schemas import ParticipantJoin, RoleUpdate, RoomCreate, TrafficInput, TransmitRequest
+from .schemas import ChatInput, ParticipantJoin, RadioDisconnect, RoleUpdate, RoomCreate, TrafficInput, TransmitRequest
 from moonbird_agent.protocol import build_probe_message
 
 
@@ -184,6 +184,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             row["payload"] = json.loads(row.pop("payload_json"))
         return rows
 
+    @app.get("/api/rooms/{code}/chat")
+    async def chat_history(code: str, limit: int = Query(default=50, ge=1, le=200)):
+        code = code.upper()
+        if not db.one("SELECT code FROM rooms WHERE code = ?", (code,)):
+            raise HTTPException(404, "room not found")
+        return db.query(
+            "SELECT id, callsign, text, sent_at FROM (SELECT id, callsign, text, sent_at FROM chat_messages WHERE room_code = ? ORDER BY id DESC LIMIT ?) ORDER BY id",
+            (code, limit),
+        )
+
     @app.get("/api/rooms/{code}/detections")
     async def detections(code: str):
         rows = db.query("SELECT * FROM detections WHERE room_code = ? ORDER BY id DESC", (code.upper(),))
@@ -214,6 +224,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not await hub.command_agent(code, callsign, command):
             raise HTTPException(409, "local companion agent is not connected")
         return {"queued": True, "sequence": sequence, "wire_text": wire_text}
+
+    @app.post("/api/rooms/{code}/radio/{callsign}/disconnect")
+    async def disconnect_radio(code: str, callsign: str, payload: RadioDisconnect):
+        code, callsign = code.upper(), callsign.upper()
+        participant = db.one("SELECT agent_token FROM participants WHERE room_code = ? AND callsign = ?", (code, callsign))
+        if not participant or not secrets.compare_digest(participant["agent_token"], payload.agent_token):
+            raise HTTPException(403, "participant agent token required")
+        disconnected = await hub.command_agent(code, callsign, {"type": "disconnect_radio"})
+        if disconnected:
+            status = {**(hub.agent_status(code, callsign) or {}), "connected": False}
+            hub.set_agent_status(code, callsign, status)
+            await hub.broadcast(code, {"type": "agent_status", "callsign": callsign, "status": status})
+        return {"disconnected": disconnected}
 
     @app.get("/api/planning")
     async def planning(lat: float, lon: float, elevation_m: float = 0, span: str = "hour", remote_lat: float | None = None, remote_lon: float | None = None, remote_elevation_m: float = 0):
@@ -254,20 +277,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await hub.broadcast(code, {"type": "detection", "detection": detection})
 
     @app.websocket("/ws/rooms/{code}")
-    async def room_socket(websocket: WebSocket, code: str, callsign: str | None = Query(default=None)):
+    async def room_socket(websocket: WebSocket, code: str, callsign: str | None = Query(default=None), token: str | None = Query(default=None)):
         code = code.upper()
         if not db.one("SELECT code FROM rooms WHERE code = ?", (code,)):
             await websocket.close(code=4404)
             return
         await hub.add_browser(code, websocket)
+        local_callsign = callsign.upper() if callsign else None
+        authenticated_callsign = None
+        if local_callsign and token:
+            participant = db.one("SELECT agent_token FROM participants WHERE room_code = ? AND callsign = ?", (code, local_callsign))
+            if participant and secrets.compare_digest(participant["agent_token"], token):
+                authenticated_callsign = local_callsign
         try:
             await websocket.send_json({"type": "room", "room": public_room(db, code)})
-            if callsign:
-                connected = (code, callsign.upper()) in hub.agents
+            if local_callsign:
+                connected = hub.agent_connected(code, local_callsign)
                 if connected:
-                    await websocket.send_json({"type": "agent", "callsign": callsign.upper(), "connected": True})
+                    await websocket.send_json({"type": "agent", "callsign": local_callsign, "connected": True})
+                    status = hub.agent_status(code, local_callsign)
+                    if status is not None:
+                        await websocket.send_json({"type": "agent_status", "callsign": local_callsign, "status": status})
             while True:
-                await websocket.receive_text()
+                raw = await websocket.receive_text()
+                if raw == "ping":
+                    continue
+                try:
+                    message = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if message.get("type") != "chat" or not authenticated_callsign:
+                    continue
+                try:
+                    chat = ChatInput.model_validate(message)
+                except ValueError:
+                    await websocket.send_json({"type": "chat_error", "detail": "Enter a message up to 300 characters."})
+                    continue
+                sent_at = utc_now().isoformat()
+                message_id = db.execute(
+                    "INSERT INTO chat_messages (room_code, callsign, text, sent_at) VALUES (?, ?, ?, ?)",
+                    (code, authenticated_callsign, chat.text, sent_at),
+                )
+                await hub.broadcast(code, {"type": "chat", "message": {"id": message_id, "callsign": authenticated_callsign, "text": chat.text, "sent_at": sent_at}})
         except WebSocketDisconnect:
             hub.remove_browser(code, websocket)
 
@@ -286,7 +337,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if message.get("type") == "traffic":
                     await ingest(code, callsign, TrafficInput.model_validate(message.get("traffic", {})))
                 elif message.get("type") == "status":
-                    await hub.broadcast(code, {"type": "agent_status", "callsign": callsign, "status": message.get("status", {})})
+                    status = message.get("status", {})
+                    if not isinstance(status, dict):
+                        continue
+                    hub.set_agent_status(code, callsign, status)
+                    board_model = status.get("board_model") if isinstance(status, dict) else None
+                    if isinstance(board_model, str) and board_model.strip():
+                        row = db.one("SELECT equipment_json FROM participants WHERE room_code = ? AND callsign = ?", (code, callsign))
+                        equipment = json.loads(row["equipment_json"]) if row else {}
+                        equipment["radio"] = board_model.strip()[:80]
+                        db.execute(
+                            "UPDATE participants SET equipment_json = ? WHERE room_code = ? AND callsign = ?",
+                            (json.dumps(equipment), code, callsign),
+                        )
+                        await hub.broadcast(code, {"type": "room", "room": public_room(db, code)})
+                    await hub.broadcast(code, {"type": "agent_status", "callsign": callsign, "status": status})
         except WebSocketDisconnect:
             pass
         finally:

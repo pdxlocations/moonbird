@@ -11,7 +11,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/"><span class="brand-mark">MB</span><span>Moonbird<small>Meshtastic EME operations</small></span></a>
+    <a class="brand" href="/"><img class="brand-mark" src="/static/assets/moonbird-logo.svg" alt=""><span>Moonbird<small>Meshtastic EME operations</small></span></a>
     <div class="topbar-actions">
       <div class="theme-selector" role="group" aria-label="Display theme">
         <button type="button" data-theme-option="light" aria-pressed="true">Light</button>
@@ -64,32 +64,36 @@
           <div class="panel-head"><div><p class="eyebrow">Live geometry</p><h2>Earth–Moon path</h2></div><span id="utc-clock"></span></div>
           <div id="scene" class="scene"></div>
           <div class="scene-stats"><div><small>Moon azimuth</small><strong id="stat-az">—</strong></div><div><small>Elevation</small><strong id="stat-el">—</strong></div><div title="Earth-Moon-Earth propagation at light speed; excludes LoRa airtime, queueing, and decode processing"><small>Vacuum path delay</small><strong id="stat-delay">—</strong></div><div><small>Doppler</small><strong id="stat-doppler">—</strong></div></div>
+          <div class="scene-stats scene-distances"><div><small>Distance to Moon</small><strong id="stat-moon-distance">—</strong></div><div><small id="stat-moon-path-label">Via Moon</small><strong id="stat-moon-path">—</strong></div><div><small id="stat-earth-path-label">Via Earth</small><strong id="stat-earth-path">—</strong></div></div>
         </section>
 
         <section class="panel control-panel">
-          <div class="panel-head"><div><p class="eyebrow">Local station</p><h2>Radio control</h2></div><span id="agent-badge" class="badge">Agent offline</span></div>
+          <div class="panel-head"><div><p class="eyebrow">Local station</p><h2>Radio control</h2></div><div class="agent-status-actions"><span id="agent-badge" class="badge">Agent offline</span><button id="disconnect-agent" type="button" class="outline" hidden>Disconnect radio</button></div></div>
           <div id="agent-setup">
-            <div class="agent-fields fields">
+            <div class="agent-fields">
               <label>Moonbird server<input id="agent-server" placeholder="http://127.0.0.1:8000"></label>
-              <label>Radio TCP host<input id="radio-host" placeholder="meshtastic.local"></label>
+              <label>Connection<select id="radio-transport"><option value="tcp">TCP</option><option value="bluetooth">Bluetooth</option><option value="serial">Serial</option></select></label>
+              <label data-radio-transport="tcp">Radio TCP host<input id="radio-host" placeholder="meshtastic.local"></label>
+              <label data-radio-transport="serial" hidden>Serial port<input id="serial-port" placeholder="/dev/tty.usbmodem…"></label>
+              <div data-radio-transport="bluetooth" hidden>
+                <label>Bluetooth device name or OS address<input id="bluetooth-address" placeholder="Select a device below"></label>
+                <button id="scan-bluetooth" type="button" class="outline bluetooth-scan">Scan for devices</button>
+                <div id="bluetooth-results" class="bluetooth-results" role="listbox" aria-label="Bluetooth devices" hidden></div>
+              </div>
             </div>
             <div id="agent-command" class="agent-command"></div>
             <button id="copy-agent-command" type="button" class="outline copy-agent">Copy agent command</button>
             <details class="agent-help">
               <summary>How to connect the radio</summary>
               <ol>
-                <li>Enable TCP access on the Meshtastic node and put it on the same LAN as this computer.</li>
+                <li>Select TCP, Bluetooth, or Serial and enter or select the local radio.</li>
                 <li>Create <code>.agent-venv</code> with Python 3.11 or 3.12 and install <code>requirements-agent.txt</code>.</li>
-                <li>Enter the node hostname or IP above, then run the generated command in a terminal.</li>
+                <li>Run the generated command in a terminal.</li>
               </ol>
               <p><code>127.0.0.1</code> is correct only when the agent and Moonbird server run on the same computer. Remote operators must use the public Moonbird URL.</p>
               <p>macOS/Linux setup: <code>python3.12 -m venv .agent-venv &amp;&amp; .agent-venv/bin/pip install -r requirements-agent.txt</code></p>
             </details>
           </div>
-          <details id="recommendations" class="recommendations">
-            <summary><strong>Configuration checks</strong><span id="check-summary">Agent not connected</span></summary>
-            <div id="recommendation-content"><p>Connect the local agent to validate the radio. Moonbird never changes node settings.</p></div>
-          </details>
           <form id="send-form">
             <div class="message-builder-grid">
               <label>Message type<select name="message_type">
@@ -104,15 +108,15 @@
               <label data-report-field hidden>Signal report dB<input name="report" type="number" min="-99" max="99" value="-12"></label>
             </div>
             <label><span id="message-text-label">Additional text (optional)</span><textarea name="text" rows="2" maxlength="160" placeholder="Optional message"></textarea></label>
-            <details class="transmit-parts">
-              <summary>On-air message preview</summary>
+            <div class="transmit-parts">
+              <div class="transmit-parts-title">On-air message preview</div>
               <div class="wire-preview"><small>Sequence is assigned when sent</small><code id="wire-preview">CQ CALLSIGN GRID #NEXT</code></div>
-            </details>
+            </div>
             <div class="transmit-grid">
               <label>Meshtastic destination<input name="destination" value="^all" title="^all for broadcast or a Meshtastic node ID"></label>
               <label>Channel index<input name="channel" type="number" min="0" max="7" value="0"></label>
             </div>
-            <button id="transmit-button">Transmit tagged probe</button>
+            <button id="transmit-button">Transmit</button>
           </form>
         </section>
 
@@ -120,6 +124,7 @@
           <div class="panel-head"><div><p class="eyebrow">Propagation forecast</p><h2>Station conditions</h2></div><div class="tabs"><button data-span="hour">Hour</button><button data-span="day" class="active">Day</button><button data-span="month">Month</button><button data-span="year">Year</button></div></div>
           <div class="legend"><span class="tx">TX elevation</span><span class="rx">Remote elevation</span><span class="loss">Relative quality</span><span class="window">Shared window</span></div>
           <div id="forecast-chart" class="chart"></div>
+          <div id="forecast-scrub-readout" class="forecast-scrub-readout"></div>
           <div id="forecast-note" class="chart-note"></div>
         </section>
 
@@ -128,13 +133,23 @@
           <div id="participants" class="participants"></div>
         </section>
 
+        <section class="panel chat-panel">
+          <div class="panel-head"><div><p class="eyebrow">Station coordination</p><h2>Room chat</h2></div></div>
+          <div id="chat-messages" class="chat-messages" aria-live="polite"><p class="empty">No messages yet.</p></div>
+          <form id="chat-form" class="chat-form"><input name="text" maxlength="300" autocomplete="off" aria-label="Chat message" placeholder="Message the room" required><button type="submit">Send</button></form>
+        </section>
+
         <section class="panel stream-panel">
           <div class="panel-head"><div><p class="eyebrow">Decoded protobuf</p><h2>Live traffic</h2></div><div class="stream-filter"><button data-kind="all" class="active">All</button><button data-kind="moonbird_probe">Probes</button><button data-kind="ack_or_routing">ACKs</button></div></div>
-          <div id="traffic-stream" class="traffic-stream"><p class="empty">Waiting for the local agent…</p></div>
+          <div id="traffic-stream" class="traffic-stream" title="Drag the lower-right edge to resize"><p class="empty">Waiting for station traffic…</p></div>
         </section>
       </div>
     </section>
   </main>
+
+  <footer class="site-footer">
+    This project is at <a href="https://github.com/pdxlocations/moonbird">pdxlocations/moonbird</a>
+  </footer>
 
   <div id="detection" class="detection" hidden>
     <div class="rings"><i></i><i></i><i></i></div>

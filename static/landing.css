@@ -3,8 +3,40 @@
   display: none !important;
 }
 
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+}
+
+.site-footer {
+  padding: 18px 4vw;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px var(--mono);
+  text-align: center;
+}
+
+.site-footer a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+.site-footer a:hover {
+  color: var(--ink);
+}
+
 .topbar {
   height: 68px;
+}
+
+img.brand-mark {
+  display: block;
+  object-fit: cover;
 }
 
 .landing {
@@ -87,9 +119,68 @@
   margin-bottom: 8px;
 }
 
+.agent-fields select {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 10px 2px;
+}
+
+.bluetooth-scan {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.bluetooth-results {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.bluetooth-results button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  padding: 8px;
+  cursor: pointer;
+  text-align: left;
+  font: 10px var(--mono);
+}
+
+.bluetooth-results button:hover {
+  border-color: var(--orange);
+}
+
+.bluetooth-results button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.bluetooth-results p {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font: 10px/1.4 var(--mono);
+}
+
 .copy-agent {
   width: 100%;
   margin: -6px 0 12px;
+}
+
+.agent-command.incomplete {
+  color: var(--muted);
+}
+
+.copy-agent:disabled {
+  cursor: not-allowed;
+  opacity: .5;
 }
 
 .agent-help {

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from moonbird.astronomy import RadioProfile, Station, sample_forecast, shared_forecast
+from moonbird.astronomy import RadioProfile, Station, great_circle_distance_km, sample_forecast, shared_forecast
 
 
 class AstronomyTests(unittest.TestCase):
@@ -25,10 +25,15 @@ class AstronomyTests(unittest.TestCase):
         self.assertLess(sample["margin_db"], 0)
 
     def test_shared_forecast_marks_simultaneous_visibility(self):
-        forecast = shared_forecast(self.station, Station(35.0, 139.0), self.profile, "month", self.when)
+        remote = Station(35.0, 139.0)
+        forecast = shared_forecast(self.station, remote, self.profile, "month", self.when)
 
         self.assertEqual(len(forecast["samples"]), 121)
         self.assertTrue(all("shared_visible" in sample for sample in forecast["samples"]))
+        first = forecast["samples"][0]
+        self.assertAlmostEqual(first["moon_path_distance_km"], first["tx"]["distance_km"] + first["rx"]["distance_km"], places=1)
+        self.assertEqual(forecast["earth_path_distance_km"], great_circle_distance_km(self.station, remote))
+        self.assertTrue(7_000 < forecast["earth_path_distance_km"] < 9_000)
 
     def test_invalid_span_is_rejected(self):
         with self.assertRaises(ValueError):

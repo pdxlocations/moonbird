@@ -18,10 +18,11 @@
 }
 
 .dashboard {
-  gap: 9px;
+  gap: 12px;
 }
 
 .panel {
+  height: 100%;
   padding: 13px;
 }
 
@@ -32,6 +33,16 @@
 .panel-head h2 {
   margin: 2px 0;
   font-size: 17px;
+}
+
+.agent-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-status-actions .outline {
+  padding: 6px 9px;
 }
 
 .eyebrow {
@@ -53,6 +64,10 @@
 
 .scene-stats small {
   font-size: 8px;
+}
+
+.scene-distances {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .control-panel label {
@@ -82,8 +97,7 @@
   padding: 6px 8px;
 }
 
-.agent-help,
-.recommendations {
+.agent-help {
   margin-bottom: 7px;
   padding: 7px 9px;
   font-size: 10px;
@@ -91,6 +105,12 @@
 
 #send-form button {
   padding: 9px 11px;
+}
+
+#send-form #transmit-button {
+  display: grid;
+  place-items: center;
+  text-align: center;
 }
 
 #send-form small {
@@ -104,8 +124,7 @@
   padding: 6px 8px;
 }
 
-.transmit-parts summary {
-  cursor: pointer;
+.transmit-parts-title {
   font: 9px var(--mono);
   font-weight: 700;
   text-transform: uppercase;
@@ -183,6 +202,44 @@
   margin-top: 7px;
 }
 
+.chart-hit-area {
+  fill: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.chart-scrubber {
+  pointer-events: none;
+}
+
+.chart-scrubber line {
+  stroke: var(--ink);
+  stroke-width: 1;
+  opacity: .55;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-scrubber .tx-point {
+  fill: var(--orange);
+  stroke: var(--panel);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-scrubber .rx-point {
+  fill: var(--blue);
+  stroke: var(--panel);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.forecast-scrub-readout {
+  min-height: 15px;
+  padding-top: 4px;
+  color: var(--ink);
+  font: 9px var(--mono);
+}
+
 .chart-note {
   padding-top: 4px;
   font-size: 9px;
@@ -208,10 +265,79 @@
   font-size: 8px;
 }
 
+.forecast-panel,
+.participants-panel,
+.chat-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.participants {
+  flex: 1;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 125px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  padding: 6px;
+}
+
+.chat-message {
+  padding: 5px 3px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-message:last-child {
+  border-bottom: 0;
+}
+
+.chat-message span {
+  color: var(--muted);
+  font: 8px var(--mono);
+  text-transform: uppercase;
+}
+
+.chat-message p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.chat-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chat-form input {
+  min-width: 0;
+  padding: 6px 2px;
+}
+
+.chat-form button {
+  border: 0;
+  background: var(--lime);
+  color: var(--ink);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .traffic-stream {
-  height: 174px;
+  height: 150px;
+  min-height: 80px;
+  max-height: 60vh;
   padding: 6px;
   font-size: 9px;
+  resize: vertical;
   overflow-x: scroll;
   overflow-y: auto;
   scrollbar-gutter: stable;
@@ -220,9 +346,10 @@
 .traffic-row {
   width: max-content;
   min-width: 100%;
-  grid-template-columns: 72px 34px 100px minmax(420px, max-content);
+  grid-template-columns: 68px 58px 28px 90px minmax(420px, max-content);
   gap: 6px;
   padding: 4px;
+  cursor: pointer;
 }
 
 .traffic-row code {
@@ -230,32 +357,71 @@
   text-overflow: clip;
 }
 
+.traffic-row.expanded {
+  width: 100%;
+  grid-template-columns: 68px 58px 28px 1fr;
+  background: #ffffff0a;
+}
+
+.traffic-row.expanded code {
+  grid-column: 1 / -1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.traffic-row:focus-visible {
+  outline: 1px solid var(--blue);
+  outline-offset: -1px;
+}
+
+.stream-panel {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 901px) and (max-width: 1199px) {
+  .dashboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .forecast-panel,
+  .stream-panel {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (min-width: 1200px) {
   .dashboard {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-areas:
+      "scene scene control control"
+      "forecast forecast stations chat"
+      "traffic traffic traffic traffic";
     align-items: stretch;
   }
 
   .scene-panel {
-    grid-column: 1 / 3;
+    grid-area: scene;
   }
 
   .control-panel {
-    grid-column: 3 / 5;
+    grid-area: control;
   }
 
   .forecast-panel {
-    grid-column: 1 / 3;
+    grid-area: forecast;
   }
 
   .participants-panel {
-    grid-column: 3;
-    max-height: 238px;
-    overflow: auto;
+    grid-area: stations;
+  }
+
+  .chat-panel {
+    grid-area: chat;
   }
 
   .stream-panel {
-    grid-column: 4;
+    grid-area: traffic;
   }
 }
 

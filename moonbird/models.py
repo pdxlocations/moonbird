@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS traffic (
     FOREIGN KEY(room_code) REFERENCES rooms(code) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS traffic_room_time ON traffic(room_code, received_at);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_code TEXT NOT NULL,
+    callsign TEXT NOT NULL,
+    text TEXT NOT NULL,
+    sent_at TEXT NOT NULL,
+    FOREIGN KEY(room_code) REFERENCES rooms(code) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS chat_room_time ON chat_messages(room_code, sent_at);
 CREATE TABLE IF NOT EXISTS detections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     room_code TEXT NOT NULL,

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 LIGHT_KM_S = 299_792.458
+EARTH_RADIUS_KM = 6378.14
 MOON_REFLECTION_LOSS_DB = 120.0
 
 
@@ -40,6 +41,15 @@ def julian_day(when: datetime) -> float:
 
 def wrap(value: float) -> float:
     return value % 360.0
+
+
+def great_circle_distance_km(left: Station, right: Station) -> float:
+    """Distance between stations along the Earth's surface."""
+    left_lat, right_lat = math.radians(left.latitude), math.radians(right.latitude)
+    delta_lat = right_lat - left_lat
+    delta_lon = math.radians(right.longitude - left.longitude)
+    haversine = math.sin(delta_lat / 2) ** 2 + math.cos(left_lat) * math.cos(right_lat) * math.sin(delta_lon / 2) ** 2
+    return round(2 * EARTH_RADIUS_KM * math.asin(math.sqrt(min(1.0, haversine))), 1)
 
 
 def moon_topocentric(station: Station, when: datetime) -> dict[str, Any]:
@@ -78,7 +88,12 @@ def moon_topocentric(station: Station, when: datetime) -> dict[str, Any]:
     latitude = math.radians(station.latitude)
     altitude = math.asin(math.sin(latitude) * math.sin(declination) + math.cos(latitude) * math.cos(declination) * math.cos(hour_angle))
     azimuth = math.atan2(-math.sin(hour_angle), math.tan(declination) * math.cos(latitude) - math.sin(latitude) * math.cos(hour_angle))
-    range_km = radius_earth * 6378.14
+    geocentric_range_km = radius_earth * EARTH_RADIUS_KM
+    station_radius_km = EARTH_RADIUS_KM + station.elevation_m / 1000
+    range_km = math.sqrt(
+        geocentric_range_km**2 + station_radius_km**2
+        - 2 * geocentric_range_km * station_radius_km * math.sin(altitude)
+    )
     sun_mean_lon = wrap(280.460 + 0.9856474 * (jd - 2451545.0))
     sun_anomaly = math.radians(wrap(357.528 + 0.9856003 * (jd - 2451545.0)))
     sun_lon = math.radians(wrap(sun_mean_lon + 1.915 * math.sin(sun_anomaly) + 0.020 * math.sin(2 * sun_anomaly)))
@@ -164,6 +179,13 @@ def shared_forecast(tx: Station, rx: Station, profile: RadioProfile, span: str, 
             "at": left["at"],
             "tx": left,
             "rx": right,
+            "moon_path_distance_km": round(left["distance_km"] + right["distance_km"], 1),
             "shared_visible": bool(left["visible"] and right["visible"]),
         })
-    return {"span": span, "tx_station": tx.__dict__, "rx_station": rx.__dict__, "samples": samples}
+    return {
+        "span": span,
+        "tx_station": tx.__dict__,
+        "rx_station": rx.__dict__,
+        "earth_path_distance_km": great_circle_distance_km(tx, rx),
+        "samples": samples,
+    }

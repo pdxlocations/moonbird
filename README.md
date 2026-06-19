@@ -8,7 +8,7 @@ Moonbird coordinates 145.050 MHz Meshtastic/LoRa lunar-path experiments. It comb
 - Hour, day, month, and year forecasts for one station or an overlaid remote station
 - Moon azimuth/elevation, range, delay, Doppler, declination, illumination, solar separation, path loss, and relative condition quality
 - Three.js Earth-Moon visualization and live propagation graph
-- Local TCP companion agent for Meshtastic nodes on macOS, Windows, and Linux
+- Local TCP, Bluetooth, or serial companion agent for Meshtastic nodes on macOS, Windows, and Linux
 - Complete decoded traffic capture, including ACK/routing, NodeInfo, telemetry, positions, ordinary text, and tagged probes
 - FT8-style sequenced CQ, report, Roger, sign-off, and custom messages
 - Candidate lunar-return correlation with a prominent visual/audio event
@@ -58,6 +58,14 @@ Create or join a room in the browser. The Radio Control panel provides the comma
 ```
 
 Omit `--allow-transmit` for capture-only operation. Moonbird validates and recommends configuration; it does not alter radio settings.
+
+Choose exactly one radio option:
+
+- TCP: `--radio-host 192.168.1.50`
+- Serial: `--serial-port /dev/ttyUSB0` (or the appropriate Windows COM port)
+- Bluetooth: `--bluetooth-address DEVICE_NAME_OR_OS_ADDRESS`
+
+The Radio Control panel generates the correct option. Its Bluetooth scan lists Meshtastic devices when the browser supports Web Bluetooth; selecting a result fills the advertised device name into the command. Browser-scoped Bluetooth IDs are not valid Meshtastic Python identifiers. Web Bluetooth requires a supported browser and a secure context (`https://` or localhost). An OS Bluetooth address can also be entered manually.
 
 ### TCP checklist
 

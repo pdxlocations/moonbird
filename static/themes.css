@@ -1,0 +1,155 @@
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.theme-selector {
+  display: flex;
+  border: 1px solid var(--line);
+}
+
+.theme-selector button {
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 10px;
+  cursor: pointer;
+  font: 10px var(--mono);
+  text-transform: uppercase;
+}
+
+.theme-selector button:last-child {
+  border-right: 0;
+}
+
+.theme-selector button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e6ece8;
+  --muted: #96a29c;
+  --paper: #0d110f;
+  --panel: #171c19;
+  --line: #354039;
+  --lime: #b8f43b;
+  --green: #68b89b;
+  --orange: #ff8058;
+  --blue: #65b5ff;
+}
+
+html[data-theme="dark"] .card-dark,
+html[data-theme="dark"] .traffic-stream {
+  background: #080b09;
+}
+
+html[data-theme="dark"] .brand-mark,
+html[data-theme="dark"] .toast {
+  background: #dfe8e2;
+  color: #101512;
+}
+
+html[data-theme="dark"] .agent-command,
+html[data-theme="dark"] .badge {
+  background: #242b27;
+}
+
+html[data-theme="dark"] .card button,
+html[data-theme="dark"] #send-form button {
+  background: #b8f43b;
+  color: #09100c;
+}
+
+html[data-theme="night"] {
+  color-scheme: dark;
+  --ink: #ff3b30;
+  --muted: #bc2a24;
+  --paper: #030000;
+  --panel: #0b0101;
+  --line: #56100d;
+  --lime: #ff2418;
+  --green: #e02018;
+  --orange: #ff5a4f;
+  --blue: #a91610;
+}
+
+html[data-theme="night"] body,
+html[data-theme="night"] input,
+html[data-theme="night"] textarea,
+html[data-theme="night"] select {
+  color: #ff3b30;
+}
+
+html[data-theme="night"] .card-dark,
+html[data-theme="night"] .traffic-stream,
+html[data-theme="night"] .scene {
+  background: #020000;
+  color: #ff3b30;
+}
+
+html[data-theme="night"] .scene {
+  background-image: radial-gradient(circle at 50% 45%, #260000, #020000 65%);
+}
+
+html[data-theme="night"] .brand-mark,
+html[data-theme="night"] .toast,
+html[data-theme="night"] .agent-command,
+html[data-theme="night"] .badge {
+  background: #210200;
+  color: #ff3b30;
+  border-color: #72120d;
+}
+
+html[data-theme="night"] .badge.connected,
+html[data-theme="night"] .card button,
+html[data-theme="night"] #send-form button {
+  background: #ff2418;
+  color: #090000;
+}
+
+html[data-theme="night"] .live-state.online i {
+  background: #ff2418;
+  box-shadow: 0 0 0 5px #ff241833;
+}
+
+html[data-theme="night"] .recommendations {
+  border-left-color: #ff2418;
+}
+
+html[data-theme="night"] .detection {
+  background: #030000f5;
+  color: #ff2418;
+}
+
+html[data-theme="night"] .detection button {
+  background: #ff2418;
+  color: #080000;
+}
+
+html[data-theme="night"] .rings i {
+  border-color: #ff241888;
+}
+
+html[data-theme="night"] .error:not(:empty) {
+  background: #210200;
+  border-color: #8d1711;
+  color: #ff5a4f;
+}
+
+@media (max-width: 700px) {
+  .topbar-actions {
+    gap: 10px;
+  }
+
+  .theme-selector button {
+    padding: 6px;
+  }
+
+  .live-state {
+    display: none;
+  }
+}

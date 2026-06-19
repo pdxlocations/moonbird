@@ -1,0 +1,15 @@
+services:
+  moonbird:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      MOONBIRD_DB: /data/moonbird.sqlite3
+      MOONBIRD_ROOM_HOURS: "24"
+      MOONBIRD_RETENTION_DAYS: "30"
+    volumes:
+      - moonbird-data:/data
+    restart: unless-stopped
+
+volumes:
+  moonbird-data:

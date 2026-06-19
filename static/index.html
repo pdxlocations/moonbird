@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moonbird | Meshtastic EME</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/landing.css">
+    <link rel="stylesheet" href="/static/themes.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark">MB</span><span>Moonbird<small>Meshtastic EME operations</small></span></a>
+    <div class="topbar-actions">
+      <div class="theme-selector" role="group" aria-label="Display theme">
+        <button type="button" data-theme-option="light" aria-pressed="true">Light</button>
+        <button type="button" data-theme-option="dark" aria-pressed="false">Dark</button>
+        <button type="button" data-theme-option="night" aria-pressed="false">Night</button>
+      </div>
+      <div id="live-state" class="live-state"><i></i> Not in a room</div>
+    </div>
+  </header>
+
+  <main>
+    <section id="landing" class="landing">
+      <div class="hero">
+        <p class="eyebrow">145.050 MHz lunar path experiments</p>
+        <h1>Plan the window.<br>Watch every packet.</h1>
+        <p>Coordinate distant stations, connect local Meshtastic radios through a private companion agent, and preserve the evidence behind every candidate lunar return.</p>
+      </div>
+      <p id="entry-error" class="error" role="alert" aria-live="assertive"></p>
+      <div class="entry-grid">
+        <form id="create-form" class="card room-entry-form">
+          <span class="card-index">01</span><h2>Create experiment</h2>
+          <label>Experiment title<input name="title" value="Moonbounce experiment" required></label>
+          <div class="fields"><label>Callsign<input name="callsign" placeholder="N0CALL" required></label><label>Role<input value="Transmitter + receiver" disabled></label></div>
+          <label>Location format<select name="location_mode"><option value="coordinates">Latitude / longitude</option><option value="grid">Maidenhead grid square</option></select></label>
+          <div class="fields" data-coordinate-fields><label>Latitude<input name="latitude" type="number" step="0.0001" value="45.5152" required></label><label>Longitude<input name="longitude" type="number" step="0.0001" value="-122.6784" required></label></div>
+          <label data-grid-field hidden>Grid square<input name="grid_square" placeholder="CN85QM" autocapitalize="characters"><small>Moonbird uses the center of the grid cell.</small></label>
+          <button>Create room <span>→</span></button>
+        </form>
+        <form id="join-form" class="card card-dark room-entry-form">
+          <span class="card-index">02</span><h2>Join a station</h2>
+          <label>Room code<input name="code" placeholder="8-character code" maxlength="8" required></label>
+          <div class="fields"><label>Callsign<input name="callsign" placeholder="N0CALL" required></label><label>Initial role<input value="Receiver" disabled></label></div>
+          <label>Location format<select name="location_mode"><option value="coordinates">Latitude / longitude</option><option value="grid">Maidenhead grid square</option></select></label>
+          <div class="fields" data-coordinate-fields><label>Latitude<input name="latitude" type="number" step="0.0001" required></label><label>Longitude<input name="longitude" type="number" step="0.0001" required></label></div>
+          <label data-grid-field hidden>Grid square<input name="grid_square" placeholder="CN85QM" autocapitalize="characters"><small>Moonbird uses the center of the grid cell.</small></label>
+          <button>Join room <span>→</span></button>
+        </form>
+      </div>
+    </section>
+
+    <section id="workspace" class="workspace" hidden>
+      <nav class="roombar">
+        <div><p class="eyebrow">Active experiment</p><h1 id="room-title">Moonbounce experiment</h1></div>
+        <div class="room-code"><span>Room code</span><strong id="room-code">--------</strong><button id="copy-room" class="icon-button">Copy link</button></div>
+        <div class="room-actions"><a id="export-json">JSON</a><a id="export-csv">CSV</a><button id="leave-room" class="outline">Leave</button></div>
+      </nav>
+
+      <div class="dashboard">
+        <section class="panel scene-panel">
+          <div class="panel-head"><div><p class="eyebrow">Live geometry</p><h2>Earth–Moon path</h2></div><span id="utc-clock"></span></div>
+          <div id="scene" class="scene"></div>
+          <div class="scene-stats"><div><small>Moon azimuth</small><strong id="stat-az">—</strong></div><div><small>Elevation</small><strong id="stat-el">—</strong></div><div title="Earth-Moon-Earth propagation at light speed; excludes LoRa airtime, queueing, and decode processing"><small>Vacuum path delay</small><strong id="stat-delay">—</strong></div><div><small>Doppler</small><strong id="stat-doppler">—</strong></div></div>
+        </section>
+
+        <section class="panel control-panel">
+          <div class="panel-head"><div><p class="eyebrow">Local station</p><h2>Radio control</h2></div><span id="agent-badge" class="badge">Agent offline</span></div>
+          <div id="agent-setup">
+            <div class="agent-fields fields">
+              <label>Moonbird server<input id="agent-server" placeholder="http://127.0.0.1:8000"></label>
+              <label>Radio TCP host<input id="radio-host" placeholder="meshtastic.local"></label>
+            </div>
+            <div id="agent-command" class="agent-command"></div>
+            <button id="copy-agent-command" type="button" class="outline copy-agent">Copy agent command</button>
+            <details class="agent-help">
+              <summary>How to connect the radio</summary>
+              <ol>
+                <li>Enable TCP access on the Meshtastic node and put it on the same LAN as this computer.</li>
+                <li>Create <code>.agent-venv</code> with Python 3.11 or 3.12 and install <code>requirements-agent.txt</code>.</li>
+                <li>Enter the node hostname or IP above, then run the generated command in a terminal.</li>
+              </ol>
+              <p><code>127.0.0.1</code> is correct only when the agent and Moonbird server run on the same computer. Remote operators must use the public Moonbird URL.</p>
+              <p>macOS/Linux setup: <code>python3.12 -m venv .agent-venv &amp;&amp; .agent-venv/bin/pip install -r requirements-agent.txt</code></p>
+            </details>
+          </div>
+          <details id="recommendations" class="recommendations">
+            <summary><strong>Configuration checks</strong><span id="check-summary">Agent not connected</span></summary>
+            <div id="recommendation-content"><p>Connect the local agent to validate the radio. Moonbird never changes node settings.</p></div>
+          </details>
+          <form id="send-form">
+            <div class="message-builder-grid">
+              <label>Message type<select name="message_type">
+                <option value="cq">1. Call (CQ)</option>
+                <option value="report">2. Reply + report</option>
+                <option value="report_ack">3. Report acknowledgment</option>
+                <option value="roger">4. Roger confirmation</option>
+                <option value="signoff">5. Sign-off (73)</option>
+                <option value="custom">Custom message</option>
+              </select></label>
+              <label data-destination-field>Destination callsign<input name="destination_callsign" value="ALL" maxlength="10" autocapitalize="characters"></label>
+              <label data-report-field hidden>Signal report dB<input name="report" type="number" min="-99" max="99" value="-12"></label>
+            </div>
+            <label><span id="message-text-label">Additional text (optional)</span><textarea name="text" rows="2" maxlength="160" placeholder="Optional message"></textarea></label>
+            <details class="transmit-parts">
+              <summary>On-air message preview</summary>
+              <div class="wire-preview"><small>Sequence is assigned when sent</small><code id="wire-preview">CQ CALLSIGN GRID #NEXT</code></div>
+            </details>
+            <div class="transmit-grid">
+              <label>Meshtastic destination<input name="destination" value="^all" title="^all for broadcast or a Meshtastic node ID"></label>
+              <label>Channel index<input name="channel" type="number" min="0" max="7" value="0"></label>
+            </div>
+            <button id="transmit-button">Transmit tagged probe</button>
+          </form>
+        </section>
+
+        <section class="panel forecast-panel wide">
+          <div class="panel-head"><div><p class="eyebrow">Propagation forecast</p><h2>Station conditions</h2></div><div class="tabs"><button data-span="hour">Hour</button><button data-span="day" class="active">Day</button><button data-span="month">Month</button><button data-span="year">Year</button></div></div>
+          <div class="legend"><span class="tx">TX elevation</span><span class="rx">Remote elevation</span><span class="loss">Relative quality</span><span class="window">Shared window</span></div>
+          <div id="forecast-chart" class="chart"></div>
+          <div id="forecast-note" class="chart-note"></div>
+        </section>
+
+        <section class="panel participants-panel">
+          <div class="panel-head"><div><p class="eyebrow">Experiment room</p><h2>Stations</h2></div><span id="station-count" class="badge"></span></div>
+          <div id="participants" class="participants"></div>
+        </section>
+
+        <section class="panel stream-panel">
+          <div class="panel-head"><div><p class="eyebrow">Decoded protobuf</p><h2>Live traffic</h2></div><div class="stream-filter"><button data-kind="all" class="active">All</button><button data-kind="moonbird_probe">Probes</button><button data-kind="ack_or_routing">ACKs</button></div></div>
+          <div id="traffic-stream" class="traffic-stream"><p class="empty">Waiting for the local agent…</p></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="detection" class="detection" hidden>
+    <div class="rings"><i></i><i></i><i></i></div>
+    <p class="eyebrow">Candidate lunar return</p><h2>Moonbounce detected</h2>
+    <div class="detection-score"><strong id="detection-score">0%</strong><span>confidence</span></div>
+    <p id="detection-detail"></p><button id="dismiss-detection">Review evidence</button>
+  </div>
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

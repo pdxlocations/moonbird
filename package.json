@@ -1,0 +1,11 @@
+{
+  "name": "moonbird-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-vendor.mjs"
+  },
+  "dependencies": {
+    "three": "^0.184.0"
+  }
+}

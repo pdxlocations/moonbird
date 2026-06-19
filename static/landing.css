@@ -1,0 +1,162 @@
+/* Landing-page sizing and resilient UI states. */
+[hidden] {
+  display: none !important;
+}
+
+.topbar {
+  height: 68px;
+}
+
+.landing {
+  padding-top: 4vh;
+  padding-bottom: 4vh;
+}
+
+.hero {
+  gap: 6vw;
+  margin-bottom: 3vh;
+}
+
+.hero h1 {
+  font-size: clamp(42px, 5.5vw, 72px);
+  line-height: .9;
+  margin: 8px 0;
+}
+
+.hero > p:last-child {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.card {
+  padding: 24px;
+}
+
+.card h2 {
+  margin-bottom: 20px;
+}
+
+.card label {
+  margin-bottom: 12px;
+}
+
+.card select {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 10px 2px;
+}
+
+.card label small {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.error:not(:empty) {
+  background: #ffe0d7;
+  border: 1px solid #ff9d82;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+}
+
+.card button:disabled,
+#send-form button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.scene-error {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  margin: 0;
+  color: #b8c8c3;
+  font: 12px var(--mono);
+}
+
+.agent-fields {
+  margin-top: 4px;
+}
+
+.agent-fields label {
+  margin-bottom: 8px;
+}
+
+.copy-agent {
+  width: 100%;
+  margin: -6px 0 12px;
+}
+
+.agent-help {
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-help summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.agent-help ol {
+  padding-left: 20px;
+}
+
+.agent-help code {
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
+.recommendations summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.recommendations summary::-webkit-details-marker {
+  display: none;
+}
+
+.recommendations summary::after {
+  content: "+";
+  margin-left: auto;
+  font: 18px var(--mono);
+}
+
+.recommendations[open] summary::after {
+  content: "-";
+}
+
+.recommendations summary span {
+  color: var(--muted);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+}
+
+.recommendations[open] #recommendation-content {
+  margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+  .landing {
+    padding-top: 28px;
+  }
+
+  .hero {
+    margin-bottom: 24px;
+  }
+
+  .hero h1 {
+    font-size: clamp(40px, 9vw, 62px);
+  }
+}

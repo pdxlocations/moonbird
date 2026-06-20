@@ -299,8 +299,11 @@ function connectSocket() {
     const message = JSON.parse(data);
     if (message.type === "room") { state.room = message.room; renderRoom(); loadForecast(); }
     if (message.type === "traffic") {
-      state.traffic.unshift(message.traffic); renderTraffic();
-      if (message.traffic.direction === "tx") animatePacket(message.traffic.callsign);
+      const pendingIndex = state.traffic.findIndex((item) => item.pending && item.callsign === message.traffic.callsign && item.packet_id === message.traffic.packet_id);
+      if (pendingIndex >= 0) state.traffic.splice(pendingIndex, 1, message.traffic);
+      else state.traffic.unshift(message.traffic);
+      renderTraffic();
+      if (message.traffic.direction === "tx" && pendingIndex < 0) animatePacket(message.traffic.callsign);
     }
     if (message.type === "chat") { state.chat.push(message.message); state.chat = state.chat.slice(-200); renderChat(); }
     if (message.type === "chat_error") toast(message.detail);
@@ -377,7 +380,27 @@ $("#send-form").addEventListener("submit", async (event) => {
     destination: values.destination,
     channel: Number(values.channel),
   };
-  try { const result = await api(`/api/rooms/${state.room.code}/transmit/${state.callsign}`, { method: "POST", body: JSON.stringify(request) }); $("#wire-preview").textContent = result.wire_text; toast(`Probe ${result.sequence} queued`); }
+  try {
+    const result = await api(`/api/rooms/${state.room.code}/transmit/${state.callsign}`, { method: "POST", body: JSON.stringify(request) });
+    $("#wire-preview").textContent = result.wire_text;
+    const packetId = String(result.sequence);
+    const alreadyConfirmed = state.traffic.some((item) => !item.pending && item.callsign === state.callsign && item.direction === "tx" && item.packet_id === packetId);
+    if (!alreadyConfirmed) {
+      state.traffic.unshift({
+        id: `pending:${state.callsign}:${packetId}`,
+        callsign: state.callsign,
+        direction: "tx",
+        kind: "moonbird_probe",
+        packet_id: packetId,
+        payload: { text: result.wire_text, status: "sent to local radio" },
+        observed_at: new Date().toISOString(),
+        pending: true,
+      });
+      renderTraffic();
+      animatePacket(state.callsign);
+    }
+    toast(`Message #${result.sequence} sent to radio`);
+  }
   catch (error) { toast(error.message); }
 });
 

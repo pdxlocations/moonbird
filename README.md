@@ -102,7 +102,7 @@ The 3D view requires `three.module.js`, `three.core.js`, and `OrbitControls.js`.
 
 ## Detection limits
 
-A detection is deliberately labeled a **candidate lunar return**. Moonbird correlates a unique probe ID, measured delay, predicted lunar path delay, station geometry, and routing metadata. This does not by itself exclude a delayed terrestrial duplicate, clock error, receiver artifact, or another transmitter. Operators should synchronize clocks, use a dedicated channel, use hop limit zero, preserve raw observations, and independently review Doppler and RF evidence.
+A detection is deliberately labeled a **candidate lunar return**. Moonbird always notifies when an RX packet matches a packet ID previously transmitted by the room. Measured delay, predicted lunar path delay, station geometry, and routing metadata affect the reported confidence but do not suppress the notification. A match does not by itself exclude a delayed terrestrial duplicate, clock error, receiver artifact, or another transmitter. Operators should synchronize clocks, use a dedicated channel, use hop limit zero, preserve raw observations, and independently review Doppler and RF evidence.
 
 The astronomy model is a compact planning approximation and is not observatory-grade ephemeris software. The absolute link budget is intentionally displayed separately from relative propagation quality. The simple two-way lunar link estimate can have an extremely large negative margin; Moonbird does not present favorable geometry as proof that a station can close the RF link.
 

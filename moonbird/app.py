@@ -71,8 +71,6 @@ def maybe_detection(db: Database, code: str, rx_callsign: str, traffic: TrafficI
     delay_ms = (received_at - sent_at).total_seconds() * 1000
     tx_moon = sample_forecast(station_for(tx), RadioProfile(), "hour", sent_at)["samples"][0]
     rx_moon = sample_forecast(station_for(rx), RadioProfile(), "hour", sent_at)["samples"][0]
-    if not tx_moon["visible"] or not rx_moon["visible"]:
-        return None
     predicted_ms = (tx_moon["distance_km"] + rx_moon["distance_km"]) / LIGHT_KM_S * 1000
     timing_error = abs(delay_ms - predicted_ms)
     timing_score = max(0.0, 1.0 - timing_error / 450.0)
@@ -81,17 +79,16 @@ def maybe_detection(db: Database, code: str, rx_callsign: str, traffic: TrafficI
     route_score = 1.0 if hop_limit in (0, None) else 0.25
     id_score = 1.0
     confidence = round(0.65 * timing_score + 0.2 * route_score + 0.15 * id_score, 3)
-    if timing_error > 900:
-        return None
+    simultaneous_visibility = bool(tx_moon["visible"] and rx_moon["visible"])
     evidence = {
-        "classification": "candidate_lunar_path",
+        "classification": "matching_packet_return",
         "timing_error_ms": round(timing_error, 2),
         "matching_packet_id": True,
-        "simultaneous_moon_visibility": True,
+        "simultaneous_moon_visibility": simultaneous_visibility,
         "route_hop_limit": hop_limit,
         "tx_moon_elevation_deg": tx_moon["elevation_deg"],
         "rx_moon_elevation_deg": rx_moon["elevation_deg"],
-        "note": "Timing correlation is evidence, not proof; terrestrial relays and clock error must be excluded.",
+        "note": "A matching packet return always triggers this event. Timing and geometry affect confidence but do not prove a lunar path.",
     }
     detection_id = db.execute(
         "INSERT INTO detections (room_code, packet_id, tx_callsign, rx_callsign, confidence, delay_ms, predicted_delay_ms, doppler_hz, evidence_json, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

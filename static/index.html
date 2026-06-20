@@ -143,7 +143,7 @@
         </section>
 
         <section class="panel stream-panel">
-          <div class="panel-head"><div><p class="eyebrow">Decoded protobuf</p><h2>Live traffic</h2></div><div class="stream-filter"><button data-kind="all" class="active">All</button><button data-kind="moonbird_probe">Probes</button><button data-kind="ack_or_routing">ACKs</button></div></div>
+          <div class="panel-head"><div><p class="eyebrow">Decoded packets</p><h2>Live traffic</h2></div><div class="stream-filter"><button data-kind="all" class="active">All</button><button data-kind="moonbird_probe">Probes</button><button data-kind="ack_or_routing">ACKs</button><button id="clear-traffic" type="button">Clear</button></div></div>
           <div id="traffic-stream" class="traffic-stream" title="Drag the lower-right edge to resize"><p class="empty">Waiting for station traffic…</p></div>
         </section>
       </div>
@@ -156,11 +156,11 @@
 
   <div id="detection" class="detection" hidden>
     <div class="rings"><i></i><i></i><i></i></div>
-    <p class="eyebrow">Candidate lunar return</p><h2>Moonbounce detected</h2>
+    <p class="eyebrow">Candidate lunar return</p><h2>Packet return detected</h2>
     <div class="detection-score"><strong id="detection-score">0%</strong><span>confidence</span></div>
     <p id="detection-detail"></p><button id="dismiss-detection">Review evidence</button>
   </div>
   <div id="toast" class="toast" hidden></div>
-  <script type="module" src="/static/app.js?v=20260619-7"></script>
+  <script type="module" src="/static/app.js?v=20260619-15"></script>
 </body>
 </html>

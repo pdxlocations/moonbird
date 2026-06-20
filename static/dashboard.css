@@ -209,6 +209,11 @@
   font-size: 9px;
 }
 
+.stream-filter #clear-traffic {
+  margin-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
 .legend {
   gap: 10px;
   font-size: 8px;
@@ -386,12 +391,17 @@
 
 .traffic-row.expanded {
   width: 100%;
-  grid-template-columns: 68px 58px 28px 1fr;
+  grid-template-columns: 68px 58px 28px 90px minmax(0, 1fr);
   background: #ffffff0a;
 }
 
-.traffic-row.expanded code {
+.traffic-row .raw-packet {
   grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding: 8px;
+  background: #00000030;
+  color: inherit;
+  font: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.45;

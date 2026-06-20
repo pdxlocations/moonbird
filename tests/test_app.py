@@ -173,6 +173,16 @@ class AppTests(unittest.TestCase):
                 detection = browser.receive_json()
                 self.assertEqual(detection["type"], "detection")
                 self.assertGreater(detection["detection"]["confidence"], 0.7)
+                agent.send_json({"type": "traffic", "traffic": {
+                    "direction": "rx", "kind": "moonbird_probe", "packet_id": command["packet_id"],
+                    "payload": {"decoded": {"hopLimit": 0}},
+                    "observed_at": (sent_at + timedelta(seconds=30)).isoformat(),
+                }})
+                self.assertEqual(browser.receive_json()["type"], "traffic")
+                late_detection = browser.receive_json()
+                self.assertEqual(late_detection["type"], "detection")
+                self.assertEqual(late_detection["detection"]["evidence"]["classification"], "matching_packet_return")
+                self.assertGreater(late_detection["detection"]["evidence"]["timing_error_ms"], 900)
                 second = self.client.post(f"/api/rooms/{code}/transmit/K7ABC", json={"text": "second"})
                 self.assertEqual(second.json()["sequence"], 2)
                 second_command = agent.receive_json()

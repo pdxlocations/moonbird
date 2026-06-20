@@ -4,7 +4,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
-from moonbird_agent.cli import RadioBridge, classify_packet, json_safe, parser
+from moonbird_agent.cli import RadioBridge, classify_packet, json_safe, packet_observed_at, parser
 
 
 class AgentTests(unittest.TestCase):
@@ -23,6 +23,10 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(kind, "nodeinfo")
         self.assertEqual(packet_id, "12")
         self.assertEqual(json_safe(b"abc"), {"base64": "YWJj"})
+
+    def test_packet_timestamp_uses_radio_receive_time(self):
+        self.assertEqual(packet_observed_at({"rxTime": 1_750_000_000}), "2025-06-15T15:06:40.000+00:00")
+        self.assertNotEqual(packet_observed_at({"rxTime": 0}), "1970-01-01T00:00:00.000+00:00")
 
     def test_radio_connection_skips_historical_node_database(self):
         options = {}

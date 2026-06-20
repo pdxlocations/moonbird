@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import base64
 import json
+import math
 import signal
 import sys
 import re
@@ -14,6 +15,17 @@ from urllib.parse import quote
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def packet_observed_at(packet: dict[str, Any]) -> str:
+    value = packet.get("rxTime", packet.get("rx_time"))
+    try:
+        timestamp = float(value)
+        if math.isfinite(timestamp) and timestamp > 0:
+            return datetime.fromtimestamp(timestamp, timezone.utc).isoformat(timespec="milliseconds")
+    except (OSError, OverflowError, TypeError, ValueError):
+        pass
+    return now_iso()
 
 
 def json_safe(value: Any) -> Any:
@@ -106,7 +118,7 @@ class RadioBridge:
                 "kind": kind,
                 "packet_id": packet_id,
                 "payload": safe_packet,
-                "observed_at": now_iso(),
+                "observed_at": packet_observed_at(packet),
             },
         }
         self.loop.call_soon_threadsafe(self.queue.put_nowait, event)

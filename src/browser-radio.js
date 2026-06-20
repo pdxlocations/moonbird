@@ -26,7 +26,7 @@ function jsonSafe(value) {
 
 function classifyPacket(packet) {
   const decoded = packet.payloadVariant?.case === "decoded" ? packet.payloadVariant.value : null;
-  const portName = decoded ? Protobuf.Portnums.PortNum[decoded.portnum] : "ENCRYPTED";
+  const portName = decoded ? (Protobuf.Portnums.PortNum[decoded.portnum] || `PORT_${decoded.portnum}`) : "ENCRYPTED";
   let text = "";
   if (portName === "TEXT_MESSAGE_APP" && decoded?.payload) text = new TextDecoder().decode(decoded.payload);
   const sequence = text.match(/(?:^|\s)#(\d+)\s*$/);
@@ -35,6 +35,15 @@ function classifyPacket(packet) {
     packetId: sequence?.[1] || String(packet.id || ""),
     text,
   };
+}
+
+function packetObservedAt(packet) {
+  const rxTime = Number(packet.rxTime);
+  if (Number.isFinite(rxTime) && rxTime > 0) {
+    const observed = new Date(rxTime * 1000);
+    if (!Number.isNaN(observed.getTime())) return observed.toISOString();
+  }
+  return new Date().toISOString();
 }
 
 function destination(value) {
@@ -68,7 +77,6 @@ export class BrowserRadio {
     this.longName = null;
     this.myNodeNum = null;
     this.nodeNames = new Map();
-    this.outgoingText = null;
   }
 
   async connect(transportType, target = "", bluetoothDevice = null) {
@@ -88,16 +96,20 @@ export class BrowserRadio {
     }
 
     this.device = new MeshDevice(transport);
-    this.device.events.onMeshPacket.subscribe((packet) => {
+    const capturePacket = (packet) => {
       const { kind, packetId, text } = classifyPacket(packet);
-      if (text && text === this.outgoingText) return;
+      const payload = jsonSafe(packet);
+      if (text) payload.decoded_text = text;
       this.onTraffic({
         direction: "rx",
         kind,
         packet_id: packetId,
-        payload: jsonSafe(packet),
-        observed_at: new Date().toISOString(),
+        payload,
+        observed_at: packetObservedAt(packet),
       });
+    };
+    this.device.events.onFromRadio.subscribe((fromRadio) => {
+      if (fromRadio.payloadVariant?.case === "packet") capturePacket(fromRadio.payloadVariant.value);
     });
     const publishLocalName = () => {
       const longName = this.nodeNames.get(this.myNodeNum);
@@ -132,23 +144,22 @@ export class BrowserRadio {
 
   async transmit(command) {
     if (!this.device) throw new Error("Radio is not connected.");
-    this.outgoingText = command.wire_text;
-    let packetId;
-    try {
-      packetId = await this.device.sendText(
-        command.wire_text,
-        destination(command.destination),
-        Boolean(command.want_ack),
-        Number(command.channel || 0),
-      );
-    } finally {
-      this.outgoingText = null;
-    }
+    const radioResult = this.device.sendText(
+      command.wire_text,
+      destination(command.destination),
+      Boolean(command.want_ack),
+      Number(command.channel || 0),
+    );
+    // Meshtastic's promise waits for a routing ACK, which is optional and may
+    // never arrive. The local handoff is the TX observation Moonbird needs.
+    radioResult.catch((error) => {
+      if (command.want_ack) console.error("Meshtastic transmit acknowledgment failed", error);
+    });
     return {
       direction: "tx",
       kind: "moonbird_probe",
-      packet_id: String(command.sequence ?? packetId),
-      payload: { text: command.wire_text, command, meshtastic_packet_id: packetId },
+      packet_id: String(command.sequence),
+      payload: { text: command.wire_text, command, radio_handoff: true },
       observed_at: new Date().toISOString(),
     };
   }

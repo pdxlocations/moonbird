@@ -299,7 +299,9 @@ function connectSocket() {
     const message = JSON.parse(data);
     if (message.type === "room") { state.room = message.room; renderRoom(); loadForecast(); }
     if (message.type === "traffic") {
-      const pendingIndex = state.traffic.findIndex((item) => item.pending && item.callsign === message.traffic.callsign && item.packet_id === message.traffic.packet_id);
+      const pendingIndex = message.traffic.direction === "tx"
+        ? state.traffic.findIndex((item) => item.pending && item.callsign === message.traffic.callsign && item.packet_id === message.traffic.packet_id)
+        : -1;
       if (pendingIndex >= 0) state.traffic.splice(pendingIndex, 1, message.traffic);
       else state.traffic.unshift(message.traffic);
       renderTraffic();
@@ -334,7 +336,7 @@ function sendBrowserRadioStatus(connected, boardModel = null, longName = null) {
 async function connectBrowserRadio() {
   const button = $("#connect-browser-radio"); button.disabled = true; button.textContent = "Connecting…";
   try {
-    const { BrowserRadio } = await import("/static/vendor/browser-radio.js?v=4");
+    const { BrowserRadio } = await import("/static/vendor/browser-radio.js?v=9");
     const transport = $("#radio-transport").value;
     if (transport === "tcp") throw new Error("Raw TCP is not available in browsers. Use the terminal companion fallback.");
     const target = transport === "http" ? $("#radio-host").value.trim() || "meshtastic.local" : "";
@@ -452,6 +454,53 @@ for (const field of ["message_type", "text", "destination_callsign", "report"]) 
 }
 
 async function loadTraffic() { try { state.traffic = await api(`/api/rooms/${state.room.code}/traffic?limit=300`); renderTraffic(); } catch (error) { toast(error.message); } }
+function decodedFields(value, prefix = "", fields = [], depth = 0) {
+  if (fields.length >= 8 || value == null || depth > 2) return fields;
+  if (Array.isArray(value)) {
+    if (value.length && value.every((item) => ["string", "number", "boolean"].includes(typeof item))) fields.push(`${prefix}: ${value.join(", ")}`);
+    else fields.push(`${prefix}: ${value.length} item${value.length === 1 ? "" : "s"}`);
+    return fields;
+  }
+  if (typeof value !== "object") {
+    fields.push(`${prefix}: ${String(value)}`);
+    return fields;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (["raw", "payload", "base64", "publicKey", "public_key", "macaddr"].includes(key)) continue;
+    const label = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ").toLowerCase();
+    decodedFields(item, prefix ? `${prefix} ${label}` : label, fields, depth + 1);
+    if (fields.length >= 8) break;
+  }
+  return fields;
+}
+
+function decodedObject(value) {
+  if (!value || typeof value !== "object") return String(value ?? "");
+  const latitude = value.latitudeI ?? value.latitude_i;
+  const longitude = value.longitudeI ?? value.longitude_i;
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    const location = `${(latitude / 1e7).toFixed(5)}, ${(longitude / 1e7).toFixed(5)}`;
+    const extra = decodedFields(Object.fromEntries(Object.entries(value).filter(([key]) => !["latitudeI", "latitude_i", "longitudeI", "longitude_i"].includes(key))));
+    return [location, ...extra].join(" · ");
+  }
+  return decodedFields(value).join(" · ") || "Decoded packet";
+}
+
+function decodedTraffic(item) {
+  const payload = item.payload || {};
+  if (typeof payload.text === "string") return payload.text;
+  if (typeof payload.decoded_text === "string") return payload.decoded_text;
+  const decoded = payload.decoded || (payload.payloadVariant?.case === "decoded" ? payload.payloadVariant.value : null);
+  if (typeof decoded?.text === "string") return decoded.text;
+  if (decoded && typeof decoded === "object") {
+    for (const key of ["routing", "telemetry", "position", "user", "neighborinfo"]) {
+      if (decoded[key] != null) return decodedObject(decoded[key]);
+    }
+    const readable = Object.fromEntries(Object.entries(decoded).filter(([key]) => !["payload", "raw"].includes(key)));
+    if (Object.keys(readable).length) return decodedObject(readable);
+  }
+  return item.kind === "encrypted" ? "Encrypted packet" : `${item.kind} packet${item.packet_id ? ` #${item.packet_id}` : ""}`;
+}
 function renderTraffic() {
   const stream = $("#traffic-stream"); stream.innerHTML = "";
   const visible = state.filter === "all" ? state.traffic : state.traffic.filter((item) => item.kind === state.filter);
@@ -465,8 +514,12 @@ function renderTraffic() {
     const callsign = document.createElement("strong"); callsign.textContent = item.callsign;
     const dir = document.createElement("strong"); dir.className = item.direction; dir.textContent = item.direction.toUpperCase();
     const kind = document.createElement("span"); kind.textContent = item.kind;
-    const payload = document.createElement("code"); payload.textContent = JSON.stringify(item.payload, null, expanded ? 2 : 0);
-    row.append(time, callsign, dir, kind, payload); row.title = payload.textContent; stream.append(row);
+    const summary = document.createElement("code"); summary.className = "traffic-summary"; summary.textContent = decodedTraffic(item);
+    row.append(time, callsign, dir, kind, summary); row.title = expanded ? "Collapse raw packet" : "Expand raw packet";
+    if (expanded) {
+      const raw = document.createElement("pre"); raw.className = "raw-packet"; raw.textContent = JSON.stringify(item, null, 2); row.append(raw);
+    }
+    stream.append(row);
     const toggle = () => { state.expandedTrafficId = expanded ? null : itemId; renderTraffic(); };
     row.addEventListener("click", toggle);
     row.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); toggle(); } });
@@ -500,7 +553,13 @@ $("#chat-form").addEventListener("submit", (event) => {
   state.socket.send(JSON.stringify({ type: "chat", text })); input.value = "";
 });
 
-$$('.stream-filter button').forEach((button) => button.addEventListener("click", () => { $$('.stream-filter button').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.kind; renderTraffic(); }));
+$$('.stream-filter button[data-kind]').forEach((button) => button.addEventListener("click", () => { $$('.stream-filter button[data-kind]').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.kind; renderTraffic(); }));
+$("#clear-traffic").addEventListener("click", () => {
+  state.traffic = [];
+  state.expandedTrafficId = null;
+  renderTraffic();
+  toast("Live traffic cleared");
+});
 $$('.tabs button').forEach((button) => button.addEventListener("click", () => { $$('.tabs button').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.span = button.dataset.span; loadForecast(); }));
 
 async function loadForecast() {

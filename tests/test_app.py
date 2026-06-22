@@ -67,11 +67,14 @@ class AppTests(unittest.TestCase):
         self.assertEqual(joined.json()["room"]["participants"][1]["grid_square"], "PM95UQ")
 
     def test_planning_supports_all_requested_spans_and_remote_station(self):
-        for span, count in (("hour", 31), ("day", 97), ("month", 121), ("year", 122)):
+        for span, count in (("hour", 31), ("day", 97), ("week", 169), ("month", 121), ("year", 122)):
             response = self.client.get(f"/api/planning?lat=45.5&lon=-122.6&remote_lat=35.6&remote_lon=139.6&span={span}")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(response.json()["samples"]), count)
             self.assertIn("shared_visible", response.json()["samples"][0])
+        frequency = self.client.get("/api/planning?lat=45.5&lon=-122.6&frequency_mhz=433")
+        self.assertEqual(frequency.json()["profile"]["frequency_mhz"], 433)
+        self.assertIn("sky_noise_degradation_db", frequency.json()["samples"][0])
 
     def test_transmit_requires_connected_agent(self):
         room = self.create_room()

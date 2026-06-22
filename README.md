@@ -8,9 +8,9 @@ Moonbird coordinates Meshtastic/LoRa lunar-path experiments. It combines live ra
 ## Current MVP
 
 - Temporary rooms with unguessable links, required callsigns, and transmitter/receiver/both/observer roles
-- Hour, day, month, and year forecasts for one station or an overlaid remote station
-- Moon azimuth/elevation, range, delay, Doppler, declination, illumination, solar separation, path loss, and relative condition quality
-- Three.js Earth-Moon visualization and live propagation graph
+- Hour, day, week, month, and year forecasts for one station or an overlaid remote station
+- Moon azimuth/elevation, range, delay, Doppler, declination, illumination, solar separation, Galactic sky noise, path loss, and relative condition quality
+- Three.js Earth-Moon visualization with a sidereal-time-oriented Milky Way star cloud and live propagation graph
 - Direct browser HTTP, Bluetooth, or USB Serial connections using the official Meshtastic JavaScript packages
 - Optional local companion fallback for unsupported browsers and raw TCP environments
 - Complete decoded traffic capture, including ACK/routing, NodeInfo, telemetry, positions, ordinary text, and tagged probes
@@ -105,6 +105,8 @@ The 3D view requires `three.module.js`, `three.core.js`, and `OrbitControls.js`.
 A detection is deliberately labeled a **candidate lunar return**. Moonbird always notifies when an RX packet matches a packet ID previously transmitted by the room. Measured delay, predicted lunar path delay, station geometry, and routing metadata affect the reported confidence but do not suppress the notification. A match does not by itself exclude a delayed terrestrial duplicate, clock error, receiver artifact, or another transmitter. Operators should synchronize clocks, use a dedicated channel, use hop limit zero, preserve raw observations, and independently review Doppler and RF evidence.
 
 The astronomy model is a compact planning approximation and is not observatory-grade ephemeris software. The absolute link budget is intentionally displayed separately from relative propagation quality. The simple two-way lunar link estimate can have an extremely large negative margin; Moonbird does not present favorable geometry as proof that a station can close the RF link.
+
+The Milky Way geometry uses the IAU J2000 Galactic coordinate transform, so its plane and center retain their real sky orientation relative to the Moon. The rendered star density is illustrative. Galactic radio degradation is an analytic approximation to the [Haslam 408 MHz all-sky survey](https://lambda.gsfc.nasa.gov/product/foreground/fg_2014_haslam_408_info.html), with enhanced plane, Galactic-center, and Cygnus regions. Brightness temperature is scaled to the station frequency with a -2.55 synchrotron spectral index and combined with an assumed 80 K receiver system temperature. It is intended for planning trends, not calibrated noise-temperature prediction.
 
 The dashboard's vacuum path delay is the geometric Earth-Moon-Earth distance divided by light speed, normally about 2.4-2.7 seconds. It does not include LoRa packet airtime, the node transmit queue, amplifier switching, or receiver decode processing. A measured application-level return can therefore arrive later than the displayed geometric delay.
 

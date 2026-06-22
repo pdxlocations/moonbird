@@ -236,10 +236,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"disconnected": disconnected}
 
     @app.get("/api/planning")
-    async def planning(lat: float, lon: float, elevation_m: float = 0, span: str = "hour", remote_lat: float | None = None, remote_lon: float | None = None, remote_elevation_m: float = 0):
+    async def planning(lat: float, lon: float, elevation_m: float = 0, span: str = "hour", frequency_mhz: float = Query(default=145.05, gt=0, le=100_000), remote_lat: float | None = None, remote_lon: float | None = None, remote_elevation_m: float = 0):
         try:
             station = Station(lat, lon, elevation_m)
-            profile = RadioProfile()
+            profile = RadioProfile(frequency_mhz=frequency_mhz)
             if remote_lat is not None and remote_lon is not None:
                 return shared_forecast(station, Station(remote_lat, remote_lon, remote_elevation_m), profile, span)
             return sample_forecast(station, profile, span)

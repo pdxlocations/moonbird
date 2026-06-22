@@ -8,6 +8,16 @@ from typing import Any
 LIGHT_KM_S = 299_792.458
 EARTH_RADIUS_KM = 6378.14
 MOON_REFLECTION_LOSS_DB = 120.0
+GALACTIC_SPECTRAL_INDEX = -2.55
+GALACTIC_MIN_408_K = 14.0
+RECEIVER_SYSTEM_TEMPERATURE_K = 80.0
+
+# IAU J2000 equatorial-to-Galactic rotation matrix.
+EQUATORIAL_TO_GALACTIC = (
+    (-0.0548755604, -0.8734370902, -0.4838350155),
+    (0.4941094279, -0.4448296300, 0.7469822445),
+    (-0.8676661490, -0.1980763734, 0.4559837762),
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +51,40 @@ def julian_day(when: datetime) -> float:
 
 def wrap(value: float) -> float:
     return value % 360.0
+
+
+def equatorial_to_galactic(right_ascension_deg: float, declination_deg: float) -> tuple[float, float]:
+    """Convert a J2000 equatorial direction to Galactic longitude/latitude."""
+    ra, dec = math.radians(right_ascension_deg), math.radians(declination_deg)
+    vector = (math.cos(dec) * math.cos(ra), math.cos(dec) * math.sin(ra), math.sin(dec))
+    galactic = tuple(sum(row[index] * vector[index] for index in range(3)) for row in EQUATORIAL_TO_GALACTIC)
+    longitude = wrap(math.degrees(math.atan2(galactic[1], galactic[0])))
+    latitude = math.degrees(math.asin(max(-1.0, min(1.0, galactic[2]))))
+    return longitude, latitude
+
+
+def galactic_sky_noise(galactic_longitude_deg: float, galactic_latitude_deg: float, frequency_mhz: float) -> dict[str, float]:
+    """Approximate diffuse Galactic radio noise and its SNR degradation."""
+    longitude = math.radians(galactic_longitude_deg)
+    latitude = math.radians(galactic_latitude_deg)
+    center_separation = math.degrees(math.acos(max(-1.0, min(1.0, math.cos(latitude) * math.cos(longitude)))))
+    cygnus_separation = math.degrees(math.acos(max(-1.0, min(1.0, math.cos(latitude) * math.cos(longitude - math.radians(80.0))))))
+    plane = 38.0 * math.exp(-((abs(galactic_latitude_deg) / 11.0) ** 1.5))
+    center = 320.0 * math.exp(-((center_separation / 20.0) ** 2))
+    cygnus = 45.0 * math.exp(-((cygnus_separation / 16.0) ** 2))
+    scale = (max(1.0, frequency_mhz) / 408.0) ** GALACTIC_SPECTRAL_INDEX
+    minimum_sky_k = max(2.7, GALACTIC_MIN_408_K * scale)
+    sky_temperature_k = max(2.7, (GALACTIC_MIN_408_K + plane + center + cygnus) * scale)
+    degradation_db = 10 * math.log10(
+        (sky_temperature_k + RECEIVER_SYSTEM_TEMPERATURE_K)
+        / (minimum_sky_k + RECEIVER_SYSTEM_TEMPERATURE_K)
+    )
+    return {
+        "galactic_center_separation_deg": round(center_separation, 2),
+        "sky_temperature_k": round(sky_temperature_k, 1),
+        "minimum_sky_temperature_k": round(minimum_sky_k, 1),
+        "sky_noise_degradation_db": round(max(0.0, degradation_db), 2),
+    }
 
 
 def great_circle_distance_km(left: Station, right: Station) -> float:
@@ -105,10 +149,16 @@ def moon_topocentric(station: Station, when: datetime) -> dict[str, Any]:
     sun_altitude = math.asin(math.sin(latitude) * math.sin(sun_dec) + math.cos(latitude) * math.cos(sun_dec) * math.cos(sun_hour_angle))
     sun_azimuth = math.atan2(-math.sin(sun_hour_angle), math.tan(sun_dec) * math.cos(latitude) - math.sin(latitude) * math.cos(sun_hour_angle))
     separation = math.acos(max(-1.0, min(1.0, math.sin(declination) * math.sin(sun_dec) + math.cos(declination) * math.cos(sun_dec) * math.cos(ra - sun_ra))))
+    right_ascension_deg = wrap(math.degrees(ra))
+    galactic_longitude_deg, galactic_latitude_deg = equatorial_to_galactic(right_ascension_deg, math.degrees(declination))
     return {
         "azimuth_deg": round(wrap(math.degrees(azimuth)), 2),
         "elevation_deg": round(math.degrees(altitude), 2),
         "declination_deg": round(math.degrees(declination), 2),
+        "right_ascension_deg": round(right_ascension_deg, 2),
+        "galactic_longitude_deg": round(galactic_longitude_deg, 2),
+        "galactic_latitude_deg": round(galactic_latitude_deg, 2),
+        "gmst_deg": round(gmst, 4),
         "solar_separation_deg": round(math.degrees(separation), 2),
         "sun_azimuth_deg": round(wrap(math.degrees(sun_azimuth)), 2),
         "sun_elevation_deg": round(math.degrees(sun_altitude), 2),
@@ -130,9 +180,11 @@ def link_metrics(station: Station, profile: RadioProfile, when: datetime) -> dic
     distance_penalty = max(0.0, 40 * math.log10(distance / 356_500))
     elevation_penalty = 35.0 if moon["elevation_deg"] <= 0 else max(0.0, 12.0 - moon["elevation_deg"] * 0.4)
     solar_penalty = max(0.0, 18.0 - moon["solar_separation_deg"]) * 0.8
-    relative_quality = max(0.0, min(100.0, 100 - distance_penalty * 5 - elevation_penalty * 2 - solar_penalty * 2))
+    sky_noise = galactic_sky_noise(moon["galactic_longitude_deg"], moon["galactic_latitude_deg"], profile.frequency_mhz)
+    relative_quality = max(0.0, min(100.0, 100 - distance_penalty * 5 - elevation_penalty * 2 - solar_penalty * 2 - sky_noise["sky_noise_degradation_db"] * 8))
     return {
         **moon,
+        **sky_noise,
         "frequency_mhz": profile.frequency_mhz,
         "wavelength_m": round(wavelength_m, 4),
         "two_way_fspl_db": round(2 * one_way_fspl, 2),
@@ -141,6 +193,7 @@ def link_metrics(station: Station, profile: RadioProfile, when: datetime) -> dic
         "margin_db": round(margin, 2),
         "quality": round(relative_quality, 1),
         "distance_degradation_db": round(distance_penalty, 2),
+        "eme_degradation_db": round(distance_penalty + sky_noise["sky_noise_degradation_db"], 2),
     }
 
 
@@ -149,11 +202,12 @@ def sample_forecast(station: Station, profile: RadioProfile, span: str, start: d
     schedules = {
         "hour": (timedelta(minutes=2), 31),
         "day": (timedelta(minutes=15), 97),
+        "week": (timedelta(hours=1), 169),
         "month": (timedelta(hours=6), 121),
         "year": (timedelta(days=3), 122),
     }
     if span not in schedules:
-        raise ValueError("span must be hour, day, month, or year")
+        raise ValueError("span must be hour, day, week, month, or year")
     step, count = schedules[span]
     samples = []
     previous_distance = moon_topocentric(station, start - step)["distance_km"]

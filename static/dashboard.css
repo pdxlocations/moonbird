@@ -209,6 +209,11 @@
   font-size: 9px;
 }
 
+.tabs #forecast-today {
+  margin-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
 .stream-filter #clear-traffic {
   margin-left: 6px;
   border-left: 1px solid var(--line);
@@ -222,12 +227,93 @@
 .chart {
   height: 165px;
   margin-top: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.chart-track {
+  position: relative;
+  width: var(--chart-width, 100%);
+  min-width: var(--chart-width, 100%);
+  height: 100%;
+}
+
+.chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.chart-label-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.chart-label {
+  position: absolute;
+  color: var(--muted);
+  font: 10px var(--mono);
+  line-height: 1;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.elevation-label,
+.degradation-axis {
+  transform: translate(-100%, -50%);
+}
+
+.present-label {
+  color: var(--lime);
+  font-size: 9px;
+  font-weight: 700;
+  transform: translateY(-50%);
+}
+
+.chart-marker {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--marker-color);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.chart-marker.degradation-point {
+  width: 8px;
+  height: 8px;
+  background: var(--degradation);
+}
+
+.forecast-panel {
+  --degradation: #c879ff;
 }
 
 .chart-hit-area {
   fill: transparent;
-  cursor: ew-resize;
-  touch-action: none;
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.chart.dragging .chart-hit-area {
+  cursor: grabbing;
+}
+
+.present-marker {
+  pointer-events: none;
+}
+
+.present-marker line {
+  stroke: var(--lime);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
 }
 
 .chart-scrubber {
@@ -255,14 +341,22 @@
   vector-effect: non-scaling-stroke;
 }
 
-.chart-scrubber circle {
-  stroke: var(--panel);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
+#forecast-legend span:not(.loss):not(.window):not(.degradation):before {
+  background: var(--series-color);
 }
 
-#forecast-legend span:not(.loss):not(.window):before {
-  background: var(--series-color);
+#forecast-legend .degradation:before {
+  content: "";
+  display: inline-block;
+  width: 15px;
+  height: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: var(--degradation);
+}
+
+.chart .degradation-axis {
+  color: var(--degradation);
 }
 
 .forecast-scrub-readout {

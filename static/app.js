@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, browserRadio: null, radioLongName: null, selectedBluetoothDevice: null, span: "day", traffic: [], chat: [], filter: "all", expandedTrafficId: null, scene: null, bluetoothScan: null, bluetoothAdvertisementHandler: null, bluetoothDevices: new Map() };
+const state = { room: null, callsign: null, adminToken: null, agentToken: null, socket: null, browserRadio: null, radioLongName: null, selectedBluetoothDevice: null, span: "day", forecastScroll: new Map(), scrollForecastToToday: null, traffic: [], chat: [], filter: "all", expandedTrafficId: null, scene: null, bluetoothScan: null, bluetoothAdvertisementHandler: null, bluetoothDevices: new Map() };
 const THEME_KEY = "moonbird:theme";
 const MESHTASTIC_BLUETOOTH_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd";
 const BLUETOOTH_IDENTIFIER_VERSION = "advertised-name-v2";
@@ -560,12 +560,13 @@ $("#clear-traffic").addEventListener("click", () => {
   renderTraffic();
   toast("Live traffic cleared");
 });
-$$('.tabs button').forEach((button) => button.addEventListener("click", () => { $$('.tabs button').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.span = button.dataset.span; loadForecast(); }));
+$$('.tabs button[data-span]').forEach((button) => button.addEventListener("click", () => { $$('.tabs button[data-span]').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.span = button.dataset.span; loadForecast(); }));
+$("#forecast-today").addEventListener("click", () => state.scrollForecastToToday?.());
 
 async function loadForecast() {
   const local = localStation(); if (!local) return;
   const remotes = activeStations().filter((station) => station.callsign !== local.callsign);
-  const baseQuery = { lat: local.latitude, lon: local.longitude, elevation_m: local.elevation_m, span: state.span };
+  const baseQuery = { lat: local.latitude, lon: local.longitude, elevation_m: local.elevation_m, frequency_mhz: local.equipment?.frequency_mhz || equipment().frequency_mhz, span: state.span };
   try {
     const forecasts = remotes.length
       ? await Promise.all(remotes.map((remote) => api(`/api/planning?${new URLSearchParams({ ...baseQuery, remote_lat: remote.latitude, remote_lon: remote.longitude, remote_elevation_m: remote.elevation_m })}`)))
@@ -598,35 +599,72 @@ function smoothChartPath(list, field, x, y) {
 
 function renderForecast(series) {
   const samples = series[0]?.samples || []; if (!samples.length) return;
-  const width = 1100, height = 260, left = 42, bottom = 25, plotW = width - left - 12, plotH = height - bottom - 10;
+  const chart = $("#forecast-chart");
+  const chartScale = { hour: 1.5, day: 2, week: 2.5, month: 3.5, year: 4 }[state.span] || 2;
+  chart.style.setProperty("--chart-width", `${chartScale * 100}%`);
+  const width = 1100, height = 260, left = 42, right = 42, bottom = 25, plotW = width - left - right, plotH = height - bottom - 10;
   const x = (index) => left + index / Math.max(1, samples.length - 1) * plotW;
   const yElevation = (value) => 10 + (90 - Math.max(-30, Math.min(90, value))) / 120 * plotH;
   const yQuality = (value) => 10 + (100 - value) / 100 * plotH;
+  const maxDegradation = Math.max(6, Math.ceil(Math.max(...samples.map((sample) => sample.eme_degradation_db || 0)) / 2) * 2);
+  const yDegradation = (value) => 10 + (maxDegradation - Math.max(0, Math.min(maxDegradation, value))) / maxDegradation * plotH;
   const sharedVisible = samples.map((_, index) => series.every((item) => item.samples[index]?.visible));
   const windows = series.length > 1 ? sharedVisible.map((visible, index) => visible ? `<rect x="${x(index)}" y="10" width="${plotW / samples.length + 1}" height="${plotH}" fill="var(--lime)" opacity=".23"/>` : "").join("") : "";
-  const labels = [0, .25, .5, .75, 1].map((part) => { const index = Math.min(samples.length - 1, Math.floor((samples.length - 1) * part)); const at = new Date(samples[index].at); const label = ["hour", "day"].includes(state.span) ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : at.toLocaleDateString([], state.span === "year" ? { month: "short" } : { month: "short", day: "numeric" }); return `<text x="${x(index)}" y="255" text-anchor="middle">${label}</text>`; }).join("");
+  const labels = [0, .25, .5, .75, 1].map((part) => { const index = Math.min(samples.length - 1, Math.floor((samples.length - 1) * part)); const at = new Date(samples[index].at); const label = ["hour", "day"].includes(state.span) ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : at.toLocaleDateString([], state.span === "year" ? { month: "short" } : { month: "short", day: "numeric" }); return `<span class="chart-label time-label" style="left:${x(index) / width * 100}%;top:${255 / height * 100}%">${label}</span>`; }).join("");
   const stationPaths = series.map((item) => `<path d="${smoothChartPath(item.samples,"elevation_deg",x,yElevation)}" fill="none" stroke="${stationColor(item.station.callsign)}" stroke-width="3" vector-effect="non-scaling-stroke"/>`).join("");
-  const points = series.map((item, index) => `<circle data-series="${index}" r="5" fill="${stationColor(item.station.callsign)}"/>`).join("");
-  $("#forecast-chart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><g class="grid">${[0,30,60,90].map((v) => `<line x1="${left}" x2="${width}" y1="${yElevation(v)}" y2="${yElevation(v)}"/><text x="34" y="${yElevation(v)+4}" text-anchor="end">${v}°</text>`).join("")}${labels}</g>${windows}${stationPaths}<path d="${smoothChartPath(series[0].samples,"quality",x,yQuality)}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/><g class="chart-scrubber"><line y1="10" y2="${10 + plotH}"/>${points}</g><rect class="chart-hit-area" x="${left}" y="10" width="${plotW}" height="${plotH}"/></svg>`;
-  $("#forecast-legend").innerHTML = `${series.map((item) => `<span style="--series-color:${stationColor(item.station.callsign)}">${item.station.callsign} elevation</span>`).join("")}<span class="loss">Relative quality</span>${series.length > 1 ? '<span class="window">Shared window</span>' : ""}`;
-  const svg = $("#forecast-chart svg"), scrubber = svg.querySelector(".chart-scrubber"), readout = $("#forecast-scrub-readout");
+  const points = series.map((item, index) => `<span class="chart-marker station-marker" data-series="${index}" style="--marker-color:${stationColor(item.station.callsign)}"></span>`).join("");
+  const startMs = new Date(samples[0].at).getTime(), endMs = new Date(samples.at(-1).at).getTime(), nowMs = Date.now();
+  const presentPart = Math.max(0, Math.min(1, (nowMs - startMs) / Math.max(1, endMs - startMs))), presentX = left + presentPart * plotW;
+  const presentMarker = `<g class="present-marker"><line x1="${presentX}" x2="${presentX}" y1="10" y2="${10 + plotH}"/></g>`;
+  const elevationLabels = [0,30,60,90].map((value) => `<span class="chart-label elevation-label" style="left:${34 / width * 100}%;top:${yElevation(value) / height * 100}%">${value}°</span>`).join("");
+  const degradationLabels = [0, .5, 1].map((part) => { const value = maxDegradation * part; return `<span class="chart-label degradation-axis" style="left:${(width - 3) / width * 100}%;top:${yDegradation(value) / height * 100}%">${value.toFixed(0)} dB</span>`; }).join("");
+  const labelLayer = `<div class="chart-label-layer">${elevationLabels}${labels}${degradationLabels}<span class="chart-label present-label" style="left:${(presentX + 5) / width * 100}%;top:${21 / height * 100}%">NOW</span>${points}<span class="chart-marker degradation-point"></span></div>`;
+  chart.innerHTML = `<div class="chart-track"><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><g class="grid">${[0,30,60,90].map((v) => `<line x1="${left}" x2="${left + plotW}" y1="${yElevation(v)}" y2="${yElevation(v)}"/>`).join("")}</g>${windows}${stationPaths}<path d="${smoothChartPath(series[0].samples,"quality",x,yQuality)}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/><path class="degradation-path" d="${smoothChartPath(samples,"eme_degradation_db",x,yDegradation)}" fill="none" stroke="var(--degradation)" stroke-width="3" vector-effect="non-scaling-stroke"/>${presentMarker}<g class="chart-scrubber"><line y1="10" y2="${10 + plotH}"/></g><rect class="chart-hit-area" x="${left}" y="10" width="${plotW}" height="${plotH}"/></svg>${labelLayer}</div>`;
+  $("#forecast-legend").innerHTML = `${series.map((item) => `<span style="--series-color:${stationColor(item.station.callsign)}">${item.station.callsign} elevation</span>`).join("")}<span class="loss">Relative quality</span><span class="degradation">EME degradation dB</span>${series.length > 1 ? '<span class="window">Shared window</span>' : ""}`;
+  const svg = $("#forecast-chart svg"), scrubber = svg.querySelector(".chart-scrubber"), markerLayer = chart.querySelector(".chart-label-layer"), readout = $("#forecast-scrub-readout");
   const showSample = (index) => {
     const sampleX = x(index); scrubber.querySelector("line").setAttribute("x1", sampleX); scrubber.querySelector("line").setAttribute("x2", sampleX);
-    series.forEach((item, seriesIndex) => { const point = scrubber.querySelector(`[data-series="${seriesIndex}"]`); point.setAttribute("cx", sampleX); point.setAttribute("cy", yElevation(item.samples[index].elevation_deg)); });
+    series.forEach((item, seriesIndex) => { const point = markerLayer.querySelector(`[data-series="${seriesIndex}"]`); point.style.left = `${sampleX / width * 100}%`; point.style.top = `${yElevation(item.samples[index].elevation_deg) / height * 100}%`; });
+    const degradationPoint = markerLayer.querySelector(".degradation-point"); degradationPoint.style.left = `${sampleX / width * 100}%`; degradationPoint.style.top = `${yDegradation(samples[index].eme_degradation_db) / height * 100}%`;
     const at = new Date(samples[index].at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    readout.textContent = `${at} · ${series.map((item) => `${item.station.callsign} ${item.samples[index].elevation_deg.toFixed(1)}°`).join(" · ")}`;
+    readout.textContent = `${at} · ${series.map((item) => `${item.station.callsign} ${item.samples[index].elevation_deg.toFixed(1)}°`).join(" · ")} · degradation ${samples[index].eme_degradation_db.toFixed(2)} dB (sky ${samples[index].sky_noise_degradation_db.toFixed(2)} dB) · Galactic latitude ${samples[index].galactic_latitude_deg.toFixed(1)}°`;
   };
-  const scrub = (event) => {
+  const sampleAtPointer = (event) => {
     const bounds = svg.getBoundingClientRect();
     const plotLeft = bounds.left + left / width * bounds.width, plotWidth = plotW / width * bounds.width;
     const position = Math.max(0, Math.min(1, (event.clientX - plotLeft) / plotWidth));
-    showSample(Math.round(position * (samples.length - 1)));
+    return Math.round(position * (samples.length - 1));
   };
-  svg.querySelector(".chart-hit-area").addEventListener("pointermove", scrub);
-  svg.querySelector(".chart-hit-area").addEventListener("pointerdown", (event) => { event.currentTarget.setPointerCapture(event.pointerId); scrub(event); });
+  const hitArea = svg.querySelector(".chart-hit-area"); let drag = null;
+  hitArea.addEventListener("pointerdown", (event) => {
+    drag = { x: event.clientX, scroll: chart.scrollLeft, moved: false };
+    hitArea.setPointerCapture(event.pointerId); chart.classList.add("dragging"); showSample(sampleAtPointer(event));
+  });
+  hitArea.addEventListener("pointermove", (event) => {
+    if (drag) {
+      const delta = event.clientX - drag.x; if (Math.abs(delta) > 3) drag.moved = true;
+      chart.scrollLeft = drag.scroll - delta; state.forecastScroll.set(state.span, chart.scrollLeft);
+    }
+    showSample(sampleAtPointer(event));
+  });
+  const endDrag = (event) => { if (!drag) return; if (!drag.moved) showSample(sampleAtPointer(event)); drag = null; chart.classList.remove("dragging"); };
+  hitArea.addEventListener("pointerup", endDrag); hitArea.addEventListener("pointercancel", endDrag);
+  const scrollToToday = (behavior = "smooth") => {
+    const markerPixel = presentX / width * svg.clientWidth;
+    chart.scrollTo({ left: Math.max(0, markerPixel - chart.clientWidth * .12), behavior });
+    state.forecastScroll.set(state.span, Math.max(0, markerPixel - chart.clientWidth * .12));
+    showSample(Math.round(presentPart * (samples.length - 1)));
+  };
+  state.scrollForecastToToday = scrollToToday;
+  chart.onscroll = () => state.forecastScroll.set(state.span, chart.scrollLeft);
+  requestAnimationFrame(() => {
+    if (state.forecastScroll.has(state.span)) chart.scrollLeft = state.forecastScroll.get(state.span);
+    else scrollToToday("auto");
+  });
   showSample(0);
   const visible = series.length > 1 ? sharedVisible.filter(Boolean).length : samples.filter((sample) => sample.visible).length;
-  $("#forecast-note").textContent = series.length > 1 ? `${visible} of ${samples.length} samples have simultaneous Moon visibility for all ${series.length} active stations.` : `${visible} of ${samples.length} samples have the Moon above your horizon.`;
+  const visibilityNote = series.length > 1 ? `${visible} of ${samples.length} samples have simultaneous Moon visibility for all ${series.length} active stations.` : `${visible} of ${samples.length} samples have the Moon above your horizon.`;
+  $("#forecast-note").textContent = `${visibilityNote} Galactic degradation is an approximate frequency-scaled sky-noise model.`;
 }
 
 async function initScene() {
@@ -656,6 +694,7 @@ async function initScene() {
   const sun = new THREE.Mesh(new THREE.SphereGeometry(.2, 48, 24), new THREE.MeshBasicMaterial({ map: sunTexture, color: 0xffc86a })); sun.position.set(-4, 2, -1); scene.add(sun);
   const light = new THREE.DirectionalLight(0xfff0cc, 3.6); light.position.copy(sun.position); const ambient = new THREE.AmbientLight(0x52726c, .12); scene.add(light, light.target, ambient);
   const stars = createStars(THREE, 720); scene.add(stars);
+  const milkyWay = createMilkyWay(THREE, 2800); scene.add(milkyWay);
   function resize() { const rect = host.getBoundingClientRect(); renderer.setSize(rect.width, rect.height, false); camera.aspect = rect.width / rect.height; camera.updateProjectionMatrix(); }
   new ResizeObserver(resize).observe(host); resize();
   const packetPulses = [];
@@ -680,7 +719,7 @@ async function initScene() {
     renderer.render(scene, camera); requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  state.scene = { scene, earth, grid, moon, sun, stars, light, ambient, stationObjects: new Map(), packetPulses };
+  state.scene = { scene, earth, grid, moon, sun, stars, milkyWay, light, ambient, stationObjects: new Map(), packetPulses };
   applySceneTheme();
 }
 
@@ -688,16 +727,17 @@ function applySceneTheme() {
   if (!state.scene) return;
   const theme = document.documentElement.dataset.theme;
   const colors = theme === "night"
-    ? { earth: 0x7a100c, emissive: 0x160000, grid: 0xff1f16, moon: 0x8a1510, sun: 0xff2418, stars: 0xb51812, light: 0xff2418, ambient: 0x330000, local: 0xff3b30, remote: 0xa6120c, path: 0xff2418 }
+    ? { earth: 0x7a100c, emissive: 0x160000, grid: 0xff1f16, moon: 0x8a1510, sun: 0xff2418, stars: 0xb51812, milky: 0xff3028, light: 0xff2418, ambient: 0x330000, local: 0xff3b30, remote: 0xa6120c, path: 0xff2418 }
     : theme === "dark"
-      ? { earth: 0xa8b5b0, emissive: 0x06100e, grid: 0x84b8ae, moon: 0xbdbbb2, sun: 0xffbd68, stars: 0xb8d2ce, light: 0xffe4b5, ambient: 0x354842, local: 0xc9ff45, remote: 0x4da3ff, path: 0xc9ff45 }
-      : { earth: 0xffffff, emissive: 0x07100f, grid: 0x9ad8ce, moon: 0xffffff, sun: 0xffc86a, stars: 0xe7f4f6, light: 0xfff0cc, ambient: 0x52726c, local: 0xc9ff45, remote: 0x4da3ff, path: 0xc9ff45 };
+      ? { earth: 0xa8b5b0, emissive: 0x06100e, grid: 0x84b8ae, moon: 0xbdbbb2, sun: 0xffbd68, stars: 0xb8d2ce, milky: 0xb9d9ff, light: 0xffe4b5, ambient: 0x354842, local: 0xc9ff45, remote: 0x4da3ff, path: 0xc9ff45 }
+      : { earth: 0xffffff, emissive: 0x07100f, grid: 0x9ad8ce, moon: 0xffffff, sun: 0xffc86a, stars: 0xe7f4f6, milky: 0xc8deff, light: 0xfff0cc, ambient: 0x52726c, local: 0xc9ff45, remote: 0x4da3ff, path: 0xc9ff45 };
   state.scene.earth.material.color.setHex(colors.earth);
   state.scene.earth.material.emissive.setHex(colors.emissive);
   state.scene.grid.material.color.setHex(colors.grid);
   state.scene.moon.material.color.setHex(colors.moon);
   state.scene.sun.material.color.setHex(colors.sun);
   state.scene.stars.material.color.setHex(colors.stars);
+  state.scene.milkyWay.material.color.setHex(colors.milky);
   state.scene.light.color.setHex(colors.light);
   state.scene.ambient.color.setHex(colors.ambient);
   state.scene.ambient.intensity = theme === "night" ? .2 : theme === "dark" ? .15 : .12;
@@ -716,6 +756,30 @@ function createStars(THREE, count) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   return new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xe7f4f6, size: 2, sizeAttenuation: false, transparent: true, opacity: .9, fog: false, depthWrite: false }));
+}
+
+function createMilkyWay(THREE, count) {
+  const positions = new Float32Array(count * 3);
+  let seed = 0x4d4f4f4e;
+  const random = () => { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 4294967296; };
+  const gaussian = () => Math.sqrt(-2 * Math.log(Math.max(1e-9, random()))) * Math.cos(2 * Math.PI * random());
+  const matrix = [
+    [-0.0548755604, -0.8734370902, -0.4838350155],
+    [0.4941094279, -0.4448296300, 0.7469822445],
+    [-0.8676661490, -0.1980763734, 0.4559837762],
+  ];
+  for (let index = 0; index < count; index += 1) {
+    const longitude = random() < .42 ? gaussian() * .42 : random() * Math.PI * 2;
+    const latitude = THREE.MathUtils.degToRad(Math.max(-24, Math.min(24, gaussian() * 6.5)));
+    const galactic = [Math.cos(latitude) * Math.cos(longitude), Math.cos(latitude) * Math.sin(longitude), Math.sin(latitude)];
+    const equatorial = [0, 1, 2].map((column) => matrix[0][column] * galactic[0] + matrix[1][column] * galactic[1] + matrix[2][column] * galactic[2]);
+    const radius = 24 + random() * 5;
+    positions[index * 3] = equatorial[0] * radius;
+    positions[index * 3 + 1] = equatorial[2] * radius;
+    positions[index * 3 + 2] = -equatorial[1] * radius;
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  return new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xc8deff, size: 1.5, sizeAttenuation: false, transparent: true, opacity: .48, depthWrite: false }));
 }
 
 function createMoonTexture(THREE, renderer, size) {
@@ -789,6 +853,7 @@ function updateScene(current, stations, paths = [], stationRanges = []) {
   state.scene.moon.position.copy(horizontalPoint(THREE, local, current.azimuth_deg, current.elevation_deg, 3.1));
   state.scene.sun.position.copy(horizontalPoint(THREE, local, current.sun_azimuth_deg, current.sun_elevation_deg, 4.6));
   state.scene.light.position.copy(state.scene.sun.position).multiplyScalar(2);
+  state.scene.milkyWay.rotation.y = -THREE.MathUtils.degToRad(current.gmst_deg);
   const activeCallsigns = new Set(stations.map((station) => station.callsign));
   const rangesByCallsign = new Map(stationRanges.map((item) => [item.callsign, item.distanceKm]));
   for (const [callsign, object] of state.scene.stationObjects) {

@@ -67,7 +67,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(joined.json()["room"]["participants"][1]["grid_square"], "PM95UQ")
 
     def test_planning_supports_all_requested_spans_and_remote_station(self):
-        for span, count in (("hour", 31), ("day", 97), ("week", 169), ("month", 121), ("year", 122)):
+        for span, count in (("hour", 31), ("day", 97), ("week", 169), ("month", 361), ("year", 731)):
             response = self.client.get(f"/api/planning?lat=45.5&lon=-122.6&remote_lat=35.6&remote_lon=139.6&span={span}")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(response.json()["samples"]), count)

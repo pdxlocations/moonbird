@@ -203,8 +203,8 @@ def sample_forecast(station: Station, profile: RadioProfile, span: str, start: d
         "hour": (timedelta(minutes=2), 31),
         "day": (timedelta(minutes=15), 97),
         "week": (timedelta(hours=1), 169),
-        "month": (timedelta(hours=6), 121),
-        "year": (timedelta(days=3), 122),
+        "month": (timedelta(hours=2), 361),
+        "year": (timedelta(hours=12), 731),
     }
     if span not in schedules:
         raise ValueError("span must be hour, day, week, month, or year")

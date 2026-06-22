@@ -43,7 +43,7 @@ class AstronomyTests(unittest.TestCase):
         remote = Station(35.0, 139.0)
         forecast = shared_forecast(self.station, remote, self.profile, "month", self.when)
 
-        self.assertEqual(len(forecast["samples"]), 121)
+        self.assertEqual(len(forecast["samples"]), 361)
         self.assertTrue(all("shared_visible" in sample for sample in forecast["samples"]))
         first = forecast["samples"][0]
         self.assertAlmostEqual(first["moon_path_distance_km"], first["tx"]["distance_km"] + first["rx"]["distance_km"], places=1)

@@ -295,6 +295,81 @@
   --degradation: #c879ff;
 }
 
+.sky-panel {
+  display: grid;
+  grid-template-rows: auto 190px auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.moon-sky-chart {
+  display: grid;
+  place-items: center;
+  height: 190px;
+}
+
+.moon-sky-chart svg {
+  display: block;
+  width: min(100%, 250px);
+  height: 100%;
+  overflow: hidden;
+}
+
+.sky-grid circle,
+.sky-grid line {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.sky-grid .sky-horizon {
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+.sky-labels {
+  fill: var(--muted);
+  font: 9px var(--mono);
+}
+
+.moon-sky-bearing {
+  stroke: var(--orange);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.moon-sky-track {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .8;
+}
+
+.moon-sky-marker {
+  fill: var(--lime);
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+
+.moon-sky-marker.below-horizon {
+  fill: var(--panel);
+  stroke: var(--muted);
+  stroke-dasharray: 3 2;
+}
+
+.moon-sky-readout {
+  min-height: 28px;
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+  padding: 8px 4px 0;
+  color: var(--ink);
+  font: 9px/1.45 var(--mono);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
 .chart-hit-area {
   fill: transparent;
   cursor: grab;
@@ -515,7 +590,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .forecast-panel,
   .stream-panel {
     grid-column: 1 / -1;
   }
@@ -526,7 +600,8 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-areas:
       "scene scene control control"
-      "forecast forecast stations chat"
+      "forecast forecast forecast sky"
+      "stations stations chat chat"
       "traffic traffic traffic traffic";
     align-items: stretch;
   }
@@ -541,6 +616,10 @@
 
   .forecast-panel {
     grid-area: forecast;
+  }
+
+  .sky-panel {
+    grid-area: sky;
   }
 
   .participants-panel {

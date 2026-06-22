@@ -597,6 +597,53 @@ function smoothChartPath(list, field, x, y) {
   return path;
 }
 
+function moonSkyPoint(azimuthDeg, elevationDeg) {
+  const azimuth = ((azimuthDeg % 360) + 360) % 360;
+  const elevation = Math.max(0, Math.min(90, elevationDeg));
+  const radius = 110 * (90 - elevation) / 90, angle = azimuth * Math.PI / 180;
+  return { x: 150 + radius * Math.sin(angle), y: 150 - radius * Math.cos(angle) };
+}
+
+function renderMoonSkyTrack(samples, selectedIndex) {
+  const track = $("#moon-sky-track"); if (!track) return;
+  const crossing = (from, to) => {
+    const part = -from.elevation_deg / (to.elevation_deg - from.elevation_deg);
+    const azimuthDelta = ((to.azimuth_deg - from.azimuth_deg + 540) % 360) - 180;
+    return moonSkyPoint(from.azimuth_deg + azimuthDelta * part, 0);
+  };
+  const passes = [];
+  for (let index = 0; index < samples.length;) {
+    if (samples[index].elevation_deg < 0) { index += 1; continue; }
+    const start = index;
+    while (index + 1 < samples.length
+      && samples[index + 1].elevation_deg >= 0
+      && new Date(samples[index + 1].at) - new Date(samples[index].at) <= 18 * 60 * 60 * 1000) index += 1;
+    passes.push({ start, end: index }); index += 1;
+  }
+  if (!passes.length) { track.setAttribute("d", ""); return; }
+  const selectedPass = passes.reduce((nearest, pass) => {
+    const distance = selectedIndex < pass.start ? pass.start - selectedIndex : selectedIndex > pass.end ? selectedIndex - pass.end : 0;
+    return !nearest || distance < nearest.distance ? { ...pass, distance } : nearest;
+  }, null);
+  const points = [];
+  if (selectedPass.start > 0 && new Date(samples[selectedPass.start].at) - new Date(samples[selectedPass.start - 1].at) <= 18 * 60 * 60 * 1000) points.push(crossing(samples[selectedPass.start - 1], samples[selectedPass.start]));
+  for (let index = selectedPass.start; index <= selectedPass.end; index += 1) points.push(moonSkyPoint(samples[index].azimuth_deg, samples[index].elevation_deg));
+  if (selectedPass.end + 1 < samples.length && new Date(samples[selectedPass.end + 1].at) - new Date(samples[selectedPass.end].at) <= 18 * 60 * 60 * 1000) points.push(crossing(samples[selectedPass.end], samples[selectedPass.end + 1]));
+  track.setAttribute("d", points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "));
+}
+
+function renderMoonSky(sample) {
+  const marker = $("#moon-sky-marker"), bearing = $("#moon-sky-bearing"), readout = $("#moon-sky-readout");
+  if (!marker || !bearing || !readout || !sample) return;
+  const azimuth = ((sample.azimuth_deg % 360) + 360) % 360;
+  const { x: moonX, y: moonY } = moonSkyPoint(azimuth, sample.elevation_deg);
+  marker.setAttribute("cx", moonX.toFixed(2)); marker.setAttribute("cy", moonY.toFixed(2));
+  bearing.setAttribute("x2", moonX.toFixed(2)); bearing.setAttribute("y2", moonY.toFixed(2));
+  marker.classList.toggle("below-horizon", sample.elevation_deg < 0);
+  const at = new Date(sample.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  readout.textContent = `${at} · azimuth ${azimuth.toFixed(1)}° · elevation ${sample.elevation_deg.toFixed(1)}°${sample.elevation_deg < 0 ? " · below horizon" : ""}`;
+}
+
 function renderForecast(series) {
   const samples = series[0]?.samples || []; if (!samples.length) return;
   const chart = $("#forecast-chart");
@@ -626,6 +673,8 @@ function renderForecast(series) {
     const sampleX = x(index); scrubber.querySelector("line").setAttribute("x1", sampleX); scrubber.querySelector("line").setAttribute("x2", sampleX);
     series.forEach((item, seriesIndex) => { const point = markerLayer.querySelector(`[data-series="${seriesIndex}"]`); point.style.left = `${sampleX / width * 100}%`; point.style.top = `${yElevation(item.samples[index].elevation_deg) / height * 100}%`; });
     const degradationPoint = markerLayer.querySelector(".degradation-point"); degradationPoint.style.left = `${sampleX / width * 100}%`; degradationPoint.style.top = `${yDegradation(samples[index].eme_degradation_db) / height * 100}%`;
+    renderMoonSkyTrack(samples, index);
+    renderMoonSky(samples[index]);
     const at = new Date(samples[index].at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     readout.textContent = `${at} · ${series.map((item) => `${item.station.callsign} ${item.samples[index].elevation_deg.toFixed(1)}°`).join(" · ")} · degradation ${samples[index].eme_degradation_db.toFixed(2)} dB (sky ${samples[index].sky_noise_degradation_db.toFixed(2)} dB) · Galactic latitude ${samples[index].galactic_latitude_deg.toFixed(1)}°`;
   };
@@ -680,7 +729,7 @@ async function initScene() {
   }
   state.THREE = THREE;
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(52, 1, .1, 100); camera.position.set(0, 2.3, 6.2);
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .95; host.append(renderer.domElement);
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.08; host.append(renderer.domElement);
   const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 3; controls.maxDistance = 9;
   const loader = new THREE.TextureLoader();
   const earthTexture = loader.load("/static/assets/earth-blue-marble.jpg");
@@ -689,6 +738,7 @@ async function initScene() {
   const moonTexture = createMoonTexture(THREE, renderer, 512);
   const sunTexture = createSunTexture(THREE, renderer, 512);
   const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), new THREE.MeshPhongMaterial({ map: earthTexture, color: 0xffffff, emissive: 0x07100f, emissiveIntensity: .06, shininess: 7 })); scene.add(earth);
+  const moonVisibility = createMoonVisibilityRing(THREE); scene.add(moonVisibility);
   const grid = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.SphereGeometry(1.006, 16, 8)), new THREE.LineBasicMaterial({ color: 0x9ad8ce, transparent: true, opacity: .13 })); scene.add(grid);
   const moon = new THREE.Mesh(new THREE.SphereGeometry(.25, 48, 24), new THREE.MeshStandardMaterial({ map: moonTexture, color: 0xffffff, roughness: .95 })); moon.position.set(3.2, .7, 0); scene.add(moon);
   const sun = new THREE.Mesh(new THREE.SphereGeometry(.2, 48, 24), new THREE.MeshBasicMaterial({ map: sunTexture, color: 0xffc86a })); sun.position.set(-4, 2, -1); scene.add(sun);
@@ -719,7 +769,7 @@ async function initScene() {
     renderer.render(scene, camera); requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  state.scene = { scene, earth, grid, moon, sun, stars, milkyWay, light, ambient, stationObjects: new Map(), packetPulses };
+  state.scene = { scene, earth, moonVisibility, grid, moon, sun, stars, milkyWay, light, ambient, stationObjects: new Map(), packetPulses };
   applySceneTheme();
 }
 
@@ -740,7 +790,7 @@ function applySceneTheme() {
   state.scene.milkyWay.material.color.setHex(colors.milky);
   state.scene.light.color.setHex(colors.light);
   state.scene.ambient.color.setHex(colors.ambient);
-  state.scene.ambient.intensity = theme === "night" ? .2 : theme === "dark" ? .15 : .12;
+  state.scene.ambient.intensity = theme === "night" ? .27 : theme === "dark" ? .23 : .2;
 }
 
 function createStars(THREE, count) {
@@ -780,6 +830,15 @@ function createMilkyWay(THREE, count) {
   }
   const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   return new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xc8deff, size: 1.5, sizeAttenuation: false, transparent: true, opacity: .48, depthWrite: false }));
+}
+
+function createMoonVisibilityRing(THREE) {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1.018, .007, 8, 160),
+    new THREE.MeshBasicMaterial({ color: 0xffd84a, transparent: true, opacity: .9, depthWrite: false }),
+  );
+  ring.renderOrder = 3;
+  return ring;
 }
 
 function createMoonTexture(THREE, renderer, size) {
@@ -851,6 +910,7 @@ function updateScene(current, stations, paths = [], stationRanges = []) {
   if (!current || !state.scene || !stations.length) return;
   const THREE = state.THREE, local = stations[0];
   state.scene.moon.position.copy(horizontalPoint(THREE, local, current.azimuth_deg, current.elevation_deg, 3.1));
+  state.scene.moonVisibility.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), state.scene.moon.position.clone().normalize());
   state.scene.sun.position.copy(horizontalPoint(THREE, local, current.sun_azimuth_deg, current.sun_elevation_deg, 4.6));
   state.scene.light.position.copy(state.scene.sun.position).multiplyScalar(2);
   state.scene.milkyWay.rotation.y = -THREE.MathUtils.degToRad(current.gmst_deg);

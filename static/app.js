@@ -600,7 +600,7 @@ function smoothChartPath(list, field, x, y) {
 function moonSkyPoint(azimuthDeg, elevationDeg) {
   const azimuth = ((azimuthDeg % 360) + 360) % 360;
   const elevation = Math.max(0, Math.min(90, elevationDeg));
-  const radius = 110 * (90 - elevation) / 90, angle = azimuth * Math.PI / 180;
+  const radius = 122 * (90 - elevation) / 90, angle = azimuth * Math.PI / 180;
   return { x: 150 + radius * Math.sin(angle), y: 150 - radius * Math.cos(angle) };
 }
 
@@ -641,7 +641,8 @@ function renderMoonSky(sample) {
   bearing.setAttribute("x2", moonX.toFixed(2)); bearing.setAttribute("y2", moonY.toFixed(2));
   marker.classList.toggle("below-horizon", sample.elevation_deg < 0);
   const at = new Date(sample.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  readout.textContent = `${at} · azimuth ${azimuth.toFixed(1)}° · elevation ${sample.elevation_deg.toFixed(1)}°${sample.elevation_deg < 0 ? " · below horizon" : ""}`;
+  const detail = `${at} · Az ${azimuth.toFixed(1)}° · El ${sample.elevation_deg.toFixed(1)}°`;
+  readout.textContent = detail; readout.title = detail;
 }
 
 function renderForecast(series) {

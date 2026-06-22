@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/styles.css?v=20260619-3">
     <link rel="stylesheet" href="/static/landing.css?v=20260619-3">
     <link rel="stylesheet" href="/static/themes.css?v=20260619-3">
-    <link rel="stylesheet" href="/static/dashboard.css?v=20260621-10">
+    <link rel="stylesheet" href="/static/dashboard.css?v=20260621-14">
 </head>
 <body>
   <header class="topbar">
@@ -136,24 +136,24 @@
           <div id="moon-sky-chart" class="moon-sky-chart">
             <svg viewBox="0 0 300 300" role="img" aria-label="Moon position from horizon to zenith">
               <g class="sky-grid">
-                <circle cx="150" cy="150" r="110" class="sky-horizon"/>
-                <circle cx="150" cy="150" r="73.3"/>
-                <circle cx="150" cy="150" r="36.7"/>
-                <line x1="40" y1="150" x2="260" y2="150"/>
-                <line x1="150" y1="40" x2="150" y2="260"/>
+                <circle cx="150" cy="150" r="122" class="sky-horizon"/>
+                <circle cx="150" cy="150" r="81.3"/>
+                <circle cx="150" cy="150" r="40.7"/>
+                <line x1="28" y1="150" x2="272" y2="150"/>
+                <line x1="150" y1="28" x2="150" y2="272"/>
               </g>
               <path id="moon-sky-track" class="moon-sky-track"/>
               <g class="sky-labels">
-                <text x="150" y="28" text-anchor="middle">N · 0°</text>
-                <text x="272" y="154" text-anchor="end">E · 90°</text>
-                <text x="150" y="282" text-anchor="middle">S · 180°</text>
-                <text x="28" y="154" text-anchor="start">W · 270°</text>
-                <text x="150" y="76" text-anchor="middle">30°</text>
-                <text x="150" y="113" text-anchor="middle">60°</text>
+                <text x="150" y="14" text-anchor="middle">N · 0°</text>
+                <text x="294" y="154" text-anchor="end">E · 90°</text>
+                <text x="150" y="296" text-anchor="middle">S · 180°</text>
+                <text x="6" y="154" text-anchor="start">W · 270°</text>
+                <text x="150" y="67" text-anchor="middle">30°</text>
+                <text x="150" y="109" text-anchor="middle">60°</text>
                 <text x="150" y="145" text-anchor="middle">ZENITH</text>
               </g>
-              <line id="moon-sky-bearing" class="moon-sky-bearing" x1="150" y1="150" x2="150" y2="40"/>
-              <circle id="moon-sky-marker" class="moon-sky-marker" cx="150" cy="40" r="9"/>
+              <line id="moon-sky-bearing" class="moon-sky-bearing" x1="150" y1="150" x2="150" y2="28"/>
+              <circle id="moon-sky-marker" class="moon-sky-marker" cx="150" cy="28" r="9"/>
             </svg>
           </div>
           <div id="moon-sky-readout" class="moon-sky-readout">Waiting for forecast…</div>
@@ -189,6 +189,6 @@
     <p id="detection-detail"></p><button id="dismiss-detection">Review evidence</button>
   </div>
   <div id="toast" class="toast" hidden></div>
-  <script type="module" src="/static/app.js?v=20260621-12"></script>
+  <script type="module" src="/static/app.js?v=20260621-15"></script>
 </body>
 </html>

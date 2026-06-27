@@ -560,7 +560,10 @@ $("#clear-traffic").addEventListener("click", () => {
   renderTraffic();
   toast("Live traffic cleared");
 });
-$$('.tabs button[data-span]').forEach((button) => button.addEventListener("click", () => { $$('.tabs button[data-span]').forEach((item) => item.classList.remove("active")); button.classList.add("active"); state.span = button.dataset.span; loadForecast(); }));
+$$('.tabs button[data-span]').forEach((button) => button.addEventListener("click", () => {
+  $$('.tabs button[data-span]').forEach((item) => item.classList.remove("active")); button.classList.add("active");
+  state.span = button.dataset.span; state.forecastScroll.set(state.span, 0); $("#forecast-chart").scrollLeft = 0; loadForecast();
+}));
 $("#forecast-today").addEventListener("click", () => state.scrollForecastToToday?.());
 
 async function loadForecast() {
@@ -650,7 +653,7 @@ function renderForecast(series) {
   const chart = $("#forecast-chart");
   const chartScale = { hour: 1.5, day: 2, week: 2.5, month: 3.5, year: 4 }[state.span] || 2;
   chart.style.setProperty("--chart-width", `${chartScale * 100}%`);
-  const width = 1100, height = 260, left = 42, right = 42, bottom = 25, plotW = width - left - right, plotH = height - bottom - 10;
+  const width = 1100, height = 260, left = 42 / chartScale, right = 42 / chartScale, bottom = 25, plotW = width - left - right, plotH = height - bottom - 10;
   const x = (index) => left + index / Math.max(1, samples.length - 1) * plotW;
   const yElevation = (value) => 10 + (90 - Math.max(-30, Math.min(90, value))) / 120 * plotH;
   const yQuality = (value) => 10 + (100 - value) / 100 * plotH;
@@ -664,9 +667,9 @@ function renderForecast(series) {
   const startMs = new Date(samples[0].at).getTime(), endMs = new Date(samples.at(-1).at).getTime(), nowMs = Date.now();
   const presentPart = Math.max(0, Math.min(1, (nowMs - startMs) / Math.max(1, endMs - startMs))), presentX = left + presentPart * plotW;
   const presentMarker = `<g class="present-marker"><line x1="${presentX}" x2="${presentX}" y1="10" y2="${10 + plotH}"/></g>`;
-  const elevationLabels = [0,30,60,90].map((value) => `<span class="chart-label elevation-label" style="left:${34 / width * 100}%;top:${yElevation(value) / height * 100}%">${value}°</span>`).join("");
-  const degradationLabels = [0, .5, 1].map((part) => { const value = maxDegradation * part; return `<span class="chart-label degradation-axis" style="left:${(width - 3) / width * 100}%;top:${yDegradation(value) / height * 100}%">${value.toFixed(0)} dB</span>`; }).join("");
-  const labelLayer = `<div class="chart-label-layer">${elevationLabels}${labels}${degradationLabels}<span class="chart-label present-label" style="left:${(presentX + 5) / width * 100}%;top:${21 / height * 100}%">NOW</span>${points}<span class="chart-marker degradation-point"></span></div>`;
+  const elevationLabels = [0,30,60,90].map((value) => `<span class="chart-label elevation-label" style="left:${(left - 8 / chartScale) / width * 100}%;top:${yElevation(value) / height * 100}%">${value}°</span>`).join("");
+  const degradationLabels = [0, .5, 1].map((part) => { const value = maxDegradation * part; return `<span class="chart-label degradation-axis" style="left:${(width - 3 / chartScale) / width * 100}%;top:${yDegradation(value) / height * 100}%">${value.toFixed(0)} dB</span>`; }).join("");
+  const labelLayer = `<div class="chart-label-layer">${elevationLabels}${labels}${degradationLabels}<span class="chart-label present-label" style="left:${(presentX + 5 / chartScale) / width * 100}%;top:${21 / height * 100}%">NOW</span>${points}<span class="chart-marker degradation-point"></span></div>`;
   chart.innerHTML = `<div class="chart-track"><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><g class="grid">${[0,30,60,90].map((v) => `<line x1="${left}" x2="${left + plotW}" y1="${yElevation(v)}" y2="${yElevation(v)}"/>`).join("")}</g>${windows}${stationPaths}<path d="${smoothChartPath(series[0].samples,"quality",x,yQuality)}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/><path class="degradation-path" d="${smoothChartPath(samples,"eme_degradation_db",x,yDegradation)}" fill="none" stroke="var(--degradation)" stroke-width="3" vector-effect="non-scaling-stroke"/>${presentMarker}<g class="chart-scrubber"><line y1="10" y2="${10 + plotH}"/></g><rect class="chart-hit-area" x="${left}" y="10" width="${plotW}" height="${plotH}"/></svg>${labelLayer}</div>`;
   $("#forecast-legend").innerHTML = `${series.map((item) => `<span style="--series-color:${stationColor(item.station.callsign)}">${item.station.callsign} elevation</span>`).join("")}<span class="loss">Relative quality</span><span class="degradation">EME degradation dB</span>${series.length > 1 ? '<span class="window">Shared window</span>' : ""}`;
   const svg = $("#forecast-chart svg"), scrubber = svg.querySelector(".chart-scrubber"), markerLayer = chart.querySelector(".chart-label-layer"), readout = $("#forecast-scrub-readout");
@@ -743,6 +746,8 @@ async function initScene() {
   const grid = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.SphereGeometry(1.006, 16, 8)), new THREE.LineBasicMaterial({ color: 0x9ad8ce, transparent: true, opacity: .13 })); scene.add(grid);
   const moon = new THREE.Mesh(new THREE.SphereGeometry(.25, 48, 24), new THREE.MeshStandardMaterial({ map: moonTexture, color: 0xffffff, roughness: .95 })); moon.position.set(3.2, .7, 0); scene.add(moon);
   const sun = new THREE.Mesh(new THREE.SphereGeometry(.2, 48, 24), new THREE.MeshBasicMaterial({ map: sunTexture, color: 0xffc86a })); sun.position.set(-4, 2, -1); scene.add(sun);
+  const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: createSunGlowTexture(THREE), color: 0xffc86a, transparent: true, opacity: .58, blending: THREE.AdditiveBlending, depthWrite: false }));
+  sunGlow.scale.set(.72, .72, 1); sun.add(sunGlow);
   const light = new THREE.DirectionalLight(0xfff0cc, 3.6); light.position.copy(sun.position); const ambient = new THREE.AmbientLight(0x52726c, .12); scene.add(light, light.target, ambient);
   const stars = createStars(THREE, 720); scene.add(stars);
   const milkyWay = createMilkyWay(THREE, 2800); scene.add(milkyWay);
@@ -770,7 +775,7 @@ async function initScene() {
     renderer.render(scene, camera); requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  state.scene = { scene, earth, moonVisibility, grid, moon, sun, stars, milkyWay, light, ambient, stationObjects: new Map(), packetPulses };
+  state.scene = { scene, earth, moonVisibility, grid, moon, sun, sunGlow, stars, milkyWay, light, ambient, stationObjects: new Map(), packetPulses };
   applySceneTheme();
 }
 
@@ -787,6 +792,7 @@ function applySceneTheme() {
   state.scene.grid.material.color.setHex(colors.grid);
   state.scene.moon.material.color.setHex(colors.moon);
   state.scene.sun.material.color.setHex(colors.sun);
+  state.scene.sunGlow.material.color.setHex(colors.sun);
   state.scene.stars.material.color.setHex(colors.stars);
   state.scene.milkyWay.material.color.setHex(colors.milky);
   state.scene.light.color.setHex(colors.light);
@@ -858,6 +864,17 @@ function createSunTexture(THREE, renderer, size) {
   context.fillStyle = base; context.fillRect(0, 0, size, size);
   drawSunBands(context, size); drawTextureNoise(context, size, .12);
   return finishTexture(THREE, renderer, canvas);
+}
+
+function createSunGlowTexture(THREE) {
+  const { canvas, context } = createCanvasTexture(128);
+  const glow = context.createRadialGradient(64, 64, 4, 64, 64, 64);
+  glow.addColorStop(0, "rgba(255,255,255,1)");
+  glow.addColorStop(.28, "rgba(255,255,255,.58)");
+  glow.addColorStop(.62, "rgba(255,255,255,.16)");
+  glow.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = glow; context.fillRect(0, 0, 128, 128);
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture;
 }
 
 function createCanvasTexture(size) {

@@ -117,6 +117,14 @@ class AppTests(unittest.TestCase):
             self.assertEqual(command["type"], "transmit")
             self.assertEqual(command["wire_text"], "CQ K7ABC CN85 browser #1")
 
+            response = self.client.post(f"/api/rooms/{code}/transmit/K7ABC", json={
+                "message_type": "roger", "destination_callsign": "ALL", "report": -12,
+            })
+            self.assertEqual(response.status_code, 200)
+            command = browser.receive_json()
+            self.assertEqual(command["type"], "transmit")
+            self.assertEqual(command["wire_text"], "ALL K7ABC R -12 #2")
+
             disconnected = self.client.post(
                 f"/api/rooms/{code}/radio/K7ABC/disconnect",
                 json={"agent_token": room["agent_token"]},

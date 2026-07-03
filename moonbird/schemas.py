@@ -103,8 +103,6 @@ class TransmitRequest(BaseModel):
     def validate_message_fields(self):
         if self.message_type in {"report", "report_ack", "roger"} and self.report is None:
             raise ValueError("signal report is required for report and Roger messages")
-        if self.message_type in {"report", "report_ack", "roger", "signoff"} and self.destination_callsign == "ALL":
-            raise ValueError("a destination callsign is required for this message type")
         if self.message_type == "custom" and not self.text.strip():
             raise ValueError("custom message text is required")
         return self

@@ -431,9 +431,7 @@ $("#send-form").addEventListener("submit", async (event) => {
 });
 
 function transmitValidationError(request) {
-  const needsDestination = ["report", "report_ack", "roger", "signoff"].includes(request.message_type);
   const needsReport = ["report", "report_ack", "roger"].includes(request.message_type);
-  if (needsDestination && request.destination_callsign === "ALL") return "Enter a destination callsign for this message type.";
   if (needsReport && request.report === null) return "Enter a signal report for this message type.";
   if (request.message_type === "custom" && !request.text.trim()) return "Enter custom message text.";
   return "";

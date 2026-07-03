@@ -31,8 +31,27 @@ $$('[data-theme-option]').forEach((button) => button.addEventListener("click", (
 async function api(url, options = {}) {
   const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.detail || payload.error || `Request failed (${response.status})`);
+  if (!response.ok) throw new Error(apiErrorMessage(payload, response.status));
   return payload;
+}
+
+function apiErrorMessage(payload, status) {
+  const detail = payload?.detail || payload?.error;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map(validationMessage).filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
+  if (detail && typeof detail === "object") return validationMessage(detail) || JSON.stringify(detail);
+  return `Request failed (${status})`;
+}
+
+function validationMessage(item) {
+  if (typeof item === "string") return item;
+  if (!item || typeof item !== "object") return "";
+  const message = item.msg || item.message || item.detail || "";
+  const location = Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+  return location && message ? `${location}: ${message}` : String(message);
 }
 
 function formObject(form) { return Object.fromEntries(new FormData(form).entries()); }
@@ -382,6 +401,11 @@ $("#send-form").addEventListener("submit", async (event) => {
     destination: values.destination,
     channel: Number(values.channel),
   };
+  const validationError = transmitValidationError(request);
+  if (validationError) {
+    toast(validationError);
+    return;
+  }
   try {
     const result = await api(`/api/rooms/${state.room.code}/transmit/${state.callsign}`, { method: "POST", body: JSON.stringify(request) });
     $("#wire-preview").textContent = result.wire_text;
@@ -405,6 +429,15 @@ $("#send-form").addEventListener("submit", async (event) => {
   }
   catch (error) { toast(error.message); }
 });
+
+function transmitValidationError(request) {
+  const needsDestination = ["report", "report_ack", "roger", "signoff"].includes(request.message_type);
+  const needsReport = ["report", "report_ack", "roger"].includes(request.message_type);
+  if (needsDestination && request.destination_callsign === "ALL") return "Enter a destination callsign for this message type.";
+  if (needsReport && request.report === null) return "Enter a signal report for this message type.";
+  if (request.message_type === "custom" && !request.text.trim()) return "Enter custom message text.";
+  return "";
+}
 
 function updateTransmitPreview() {
   const form = $("#send-form");

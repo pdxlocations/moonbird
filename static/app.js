@@ -576,14 +576,48 @@ async function loadForecast() {
       : [await api(`/api/planning?${new URLSearchParams(baseQuery)}`)];
     const localSamples = forecasts[0].samples.map((sample) => sample.tx || sample);
     const series = [{ station: local, samples: localSamples }, ...remotes.map((station, index) => ({ station, samples: forecasts[index].samples.map((sample) => sample.rx) }))];
-    renderForecast(series);
-    updateScene(localSamples[0], series.map((item) => item.station), remotes.map((station, index) => ({
-      station,
-      moonPathKm: forecasts[index].samples[0]?.moon_path_distance_km,
-      earthPathKm: forecasts[index].earth_path_distance_km,
+    const pathSeries = remotes.map((station, index) => ({ station, samples: forecasts[index].samples, earthPathKm: forecasts[index].earth_path_distance_km }));
+    renderForecast(series, pathSeries);
+    updateScene(localSamples[0], series.map((item) => item.station), pathSeries.map((path) => ({
+      station: path.station,
+      moonPathKm: path.samples[0]?.moon_path_distance_km,
+      earthPathKm: path.earthPathKm,
     })), series.map((item) => ({ callsign: item.station.callsign, distanceKm: item.samples[0]?.distance_km })));
   }
   catch (error) { toast(error.message); }
+}
+
+function updateForecastScene(series, pathSeries, index) {
+  const sample = series[0]?.samples[index];
+  if (!sample) return;
+  updateScene(sample, series.map((item) => item.station), pathSeries.map((path) => ({
+    station: path.station,
+    moonPathKm: path.samples[index]?.moon_path_distance_km,
+    earthPathKm: path.earthPathKm,
+  })), series.map((item) => ({ callsign: item.station.callsign, distanceKm: item.samples[index]?.distance_km })));
+}
+
+function moonPhaseName(illuminationPercent, waxing) {
+  const illumination = Math.max(0, Math.min(100, illuminationPercent ?? 0));
+  if (illumination < 2) return "new Moon";
+  if (illumination > 98) return "full Moon";
+  if (Math.abs(illumination - 50) < 3) return waxing ? "first quarter" : "last quarter";
+  return `${waxing ? "waxing" : "waning"} ${illumination < 50 ? "crescent" : "gibbous"}`;
+}
+
+function moonPhasePath(illuminationPercent, waxing, radius = 9) {
+  const illumination = Math.max(0, Math.min(1, (illuminationPercent ?? 0) / 100));
+  if (illumination <= .005) return "";
+  const steps = 24, outer = [], terminator = [];
+  for (let step = 0; step <= steps; step += 1) {
+    const y = -radius + 2 * radius * step / steps;
+    const edge = Math.sqrt(Math.max(0, radius * radius - y * y));
+    const limb = waxing ? edge : -edge;
+    const shadowLine = (1 - 2 * illumination) * edge * (waxing ? 1 : -1);
+    outer.push([limb, y]);
+    terminator.push([shadowLine, y]);
+  }
+  return [...outer, ...terminator.reverse()].map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ") + " Z";
 }
 
 function smoothChartPath(list, field, x, y) {
@@ -635,20 +669,26 @@ function renderMoonSkyTrack(samples, selectedIndex) {
   track.setAttribute("d", points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "));
 }
 
-function renderMoonSky(sample) {
-  const marker = $("#moon-sky-marker"), bearing = $("#moon-sky-bearing"), readout = $("#moon-sky-readout");
-  if (!marker || !bearing || !readout || !sample) return;
+function renderMoonSky(sample, previousSample, nextSample) {
+  const marker = $("#moon-sky-marker"), phase = $("#moon-sky-phase"), bearing = $("#moon-sky-bearing"), readout = $("#moon-sky-readout");
+  if (!marker || !phase || !bearing || !readout || !sample) return;
   const azimuth = ((sample.azimuth_deg % 360) + 360) % 360;
   const { x: moonX, y: moonY } = moonSkyPoint(azimuth, sample.elevation_deg);
-  marker.setAttribute("cx", moonX.toFixed(2)); marker.setAttribute("cy", moonY.toFixed(2));
+  marker.setAttribute("transform", `translate(${moonX.toFixed(2)} ${moonY.toFixed(2)})`);
   bearing.setAttribute("x2", moonX.toFixed(2)); bearing.setAttribute("y2", moonY.toFixed(2));
   marker.classList.toggle("below-horizon", sample.elevation_deg < 0);
+  const illumination = sample.illumination_percent ?? 0;
+  const waxing = nextSample
+    ? (nextSample.illumination_percent ?? illumination) >= illumination
+    : illumination >= (previousSample?.illumination_percent ?? illumination);
+  phase.setAttribute("d", moonPhasePath(sample.illumination_percent, waxing));
   const at = new Date(sample.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  const detail = `${at} · Az ${azimuth.toFixed(1)}° · El ${sample.elevation_deg.toFixed(1)}°`;
+  const phaseLabel = moonPhaseName(sample.illumination_percent, waxing);
+  const detail = `${at} · ${phaseLabel} ${Number(sample.illumination_percent ?? 0).toFixed(1)}% · Az ${azimuth.toFixed(1)}° · El ${sample.elevation_deg.toFixed(1)}°`;
   readout.textContent = detail; readout.title = detail;
 }
 
-function renderForecast(series) {
+function renderForecast(series, pathSeries = []) {
   const samples = series[0]?.samples || []; if (!samples.length) return;
   const chart = $("#forecast-chart");
   const chartScale = { hour: 1.5, day: 2, week: 2.5, month: 3.5, year: 4 }[state.span] || 2;
@@ -678,7 +718,8 @@ function renderForecast(series) {
     series.forEach((item, seriesIndex) => { const point = markerLayer.querySelector(`[data-series="${seriesIndex}"]`); point.style.left = `${sampleX / width * 100}%`; point.style.top = `${yElevation(item.samples[index].elevation_deg) / height * 100}%`; });
     const degradationPoint = markerLayer.querySelector(".degradation-point"); degradationPoint.style.left = `${sampleX / width * 100}%`; degradationPoint.style.top = `${yDegradation(samples[index].eme_degradation_db) / height * 100}%`;
     renderMoonSkyTrack(samples, index);
-    renderMoonSky(samples[index]);
+    renderMoonSky(samples[index], samples[index - 1], samples[index + 1]);
+    updateForecastScene(series, pathSeries, index);
     const at = new Date(samples[index].at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     readout.textContent = `${at} · ${series.map((item) => `${item.station.callsign} ${item.samples[index].elevation_deg.toFixed(1)}°`).join(" · ")} · degradation ${samples[index].eme_degradation_db.toFixed(2)} dB (sky ${samples[index].sky_noise_degradation_db.toFixed(2)} dB) · Galactic latitude ${samples[index].galactic_latitude_deg.toFixed(1)}°`;
   };

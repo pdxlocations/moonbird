@@ -357,15 +357,28 @@
 }
 
 .moon-sky-marker {
-  fill: var(--lime);
-  stroke: var(--ink);
-  stroke-width: 3;
+  filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--ink) 35%, transparent));
 }
 
-.moon-sky-marker.below-horizon {
+.moon-sky-disc {
+  fill: var(--ink);
+  stroke: var(--ink);
+  stroke-width: 2.5;
+}
+
+.moon-sky-phase {
+  fill: var(--lime);
+  stroke: none;
+}
+
+.moon-sky-marker.below-horizon .moon-sky-disc {
   fill: var(--panel);
   stroke: var(--muted);
   stroke-dasharray: 3 2;
+}
+
+.moon-sky-marker.below-horizon .moon-sky-phase {
+  fill: color-mix(in srgb, var(--muted) 62%, var(--panel));
 }
 
 .moon-sky-readout {
